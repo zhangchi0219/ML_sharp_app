@@ -1,0 +1,32 @@
+/* ============================================================
+   Studio Web UI — Base layer
+   元素默认 + 共享工具类。须在 tokens.css 之后加载。
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 300 var(--fs-body)/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 等宽元数据标签 —— 标志性元素：小（低于正文）、大写、加字距。 */
+.label {
+  font: 500 var(--fs-label)/1 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* 标题下的副题/导语 —— 与 .label 同等宽语域，但字号在正文之上。 */
+.subtitle {
+  font: 700 var(--fs-subtitle)/1.2 var(--font-mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.on-hot { color: var(--on-hot); }

@@ -1,0 +1,51 @@
+/* ============================================================
+   Studio Web UI — Design Tokens (pure)
+   单一数值源。此文件不直接给元素加样式，只是命名决策。
+   ============================================================ */
+
+:root {
+  /* — 画布与墨色：暖、低饱和底色 — */
+  --canvas:     #EBE4D6;   /* 暖燕麦色（默认） */
+  --surface:    #F3EEE4;   /* 略浅，用于抬升面板 */
+  --ink:        #2A241E;   /* 暖墨黑文字 */
+  --ink-muted:  #8A7E6D;   /* 暖灰褐，次级文字 + 标签 */
+
+  /* — 唯一强调色，每屏只用一次（一个 CTA 或一个块）— */
+  --hot:        #BE6A4A;   /* 低饱和 terracotta */
+  --on-hot:     #F6F0E6;   /* 落在 hot 填充上的暖白文字 */
+
+  /* — 模块强调色：暖、低饱和的色块 — */
+  --m-sand:     #D9C9AB;
+  --m-clay:     #C8A98B;
+  --m-rose:     #D4B3A4;
+  --m-olive:    #B4AC82;
+  --m-hot:      #BE6A4A;
+
+  /* — 字体族（Latin 在前，CJK 在后；中文走系统 Microsoft YaHei）— */
+  --font-display: "Bricolage Grotesque", "Archivo", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", "Space Mono", ui-monospace, "PingFang SC", "Microsoft YaHei", monospace;
+  --font-body:    "Plus Jakarta Sans", "Work Sans", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  --font-serif:   "Fraunces", "Newsreader", "Songti SC", "Source Han Serif SC", Georgia, serif;
+
+  /* — 字号比例。display 刻意超大。 — */
+  --fs-display:     clamp(3rem, 9vw, 7rem);
+  --fs-card-title:  clamp(1.6rem, 3.2vw, 2.4rem);
+  --fs-body:        0.75rem;
+  --fs-subtitle:    1.5rem;
+  --fs-label:       0.75rem;
+  --tracking-label: 0.08em;
+  --leading-tight:  0.95;
+
+  /* — 间距，8px 基准 — */
+  --s1: 4px;  --s2: 8px;  --s3: 16px; --s4: 24px;
+  --s5: 32px; --s6: 48px; --s7: 64px; --s8: 96px;
+
+  /* — 圆角。默认柔和。 — */
+  --radius:      24px;
+  --radius-pill: 999px;
+
+  /* — 栅格 — */
+  --split-sidebar: 37fr;
+  --split-content: 63fr;
+  --maxw: 1600px;
+}

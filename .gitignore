@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.local
+
+# 运行时数据（上传/产出/数据库/缩略图）
+backend/data/
+
+# 第三方源码（由 scripts/setup.ps1 克隆与安装）
+third_party/
+
+# 模型权重
+*.pt
+
+# 编辑器/系统
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
