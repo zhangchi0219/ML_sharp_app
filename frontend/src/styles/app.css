@@ -97,6 +97,12 @@
   color: var(--on-hot); padding: var(--s2) var(--s3); border-radius: var(--radius-pill);
 }
 .viewer-error { color: #ffd9cc; }
+.viewer-hint {
+  position: absolute; left: var(--s4); top: var(--s4);
+  background: color-mix(in srgb, var(--ink) 70%, transparent);
+  color: var(--on-hot); padding: var(--s2) var(--s3); border-radius: var(--radius-pill);
+  pointer-events: none; user-select: none;
+}
 
 /* 历史画廊 */
 .gallery-section { flex-shrink: 0; }

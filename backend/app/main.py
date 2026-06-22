@@ -160,3 +160,15 @@ async def generate(file: UploadFile = File(...)) -> dict:
         session.commit()
         session.refresh(record)
         return _to_dict(record)
+
+
+# ── 便捷启动：托管已构建的前端（单进程·单端口）──
+# 若 frontend/dist 存在（已 `npm run build`），把它挂到 "/"——这样后端一个进程即可
+# 同时提供 API、静态产物与前端页面，无需再单独跑 Vite。必须在所有 /api、/files
+# 之后挂载，否则 "/" 会抢占它们（Starlette 按注册顺序匹配）。
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if (FRONTEND_DIST / "index.html").exists():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    LOGGER.info("已挂载前端静态目录：%s", FRONTEND_DIST)
+else:
+    LOGGER.info("未找到前端构建产物（%s）；单进程托管前请先 `npm run build`。", FRONTEND_DIST)

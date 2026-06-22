@@ -56,9 +56,29 @@ npm install --prefix frontend
 
 ## 运行
 
+### 便捷启动（推荐，单进程一键）
+
+构建一次前端后由 FastAPI 一个进程托管，无需再单独跑 Vite：
+
+```powershell
+# 双击根目录的「启动 SHARP.bat」，或在终端：
+powershell -ExecutionPolicy Bypass -File scripts\app.ps1
+# 首次会自动 npm run build；模型加载完成后自动打开 http://localhost:8000
+# 改了前端代码要更新静态产物时：scripts\app.ps1 -Rebuild
+```
+
+想要桌面图标，运行一次：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-shortcut.ps1
+# 在桌面生成「SHARP 高斯泼溅」快捷方式，双击即启动（关闭窗口即停止服务）
+```
+
+### 开发模式（前后端分离，热更新）
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
-# 然后打开 http://localhost:5173
+# 后端 :8000、前端 :5173（Vite 代理 /api 与 /files），打开 http://localhost:5173
 ```
 
 或手动分别启动：
