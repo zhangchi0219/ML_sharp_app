@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
   desktop.ps1 — 桌面应用启动：检查前置条件后，用 pythonw 拉起原生窗口。
     1) 前端依赖 / 构建产物缺失时先补上（-Rebuild 强制重建）

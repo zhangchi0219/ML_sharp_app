@@ -1,13 +1,20 @@
 @echo off
-chcp 65001 >nul
-rem 带前置检查的启动：必要时先构建前端，再用 pythonw 拉起原生窗口（窗口本身无控制台）。
-rem 改了前端代码后想更新界面："启动 SHARP.bat" -Rebuild
-rem 日常使用建议走桌面快捷方式（scripts\install-shortcut.ps1 生成），那条路径全程无控制台。
+rem ---------------------------------------------------------------------------
+rem  Launch the SHARP desktop app (with pre-flight frontend build check).
+rem    "Qi Dong SHARP.bat" -Rebuild   forces a frontend rebuild.
+rem
+rem  KEEP THIS FILE PURE ASCII.
+rem  cmd.exe parses a .bat by byte offset using the current code page. A non-ASCII
+rem  character (or a `chcp` switch) shifts that offset and cmd starts executing the
+rem  middle of later lines -- comments get run as commands and the file breaks.
+rem  All human-readable Chinese output belongs in desktop.ps1, not here.
+rem ---------------------------------------------------------------------------
 powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0scripts\desktop.ps1" %*
-rem 出错时（缺 venv、npm 构建失败…）停下来让用户看清报错——
-rem 否则双击运行的 cmd 窗口会立刻关闭，错误信息一闪而过。
+
+rem Pause on failure so the error stays readable when this file is double-clicked
+rem (otherwise the console window closes instantly and the message is lost).
 if errorlevel 1 (
     echo.
-    echo [启动失败] 上面是错误详情。
+    echo [FAILED] See the error above.
     pause
 )

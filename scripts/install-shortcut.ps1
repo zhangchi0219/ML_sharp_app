@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
   install-shortcut.ps1 — 在桌面创建“SHARP 高斯泼溅”快捷方式（运行一次即可）。
     快捷方式直接指向 pythonw.exe desktop.py，全程无控制台窗口。
