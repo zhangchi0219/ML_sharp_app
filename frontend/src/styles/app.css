@@ -54,6 +54,27 @@
 .cta::after { content: "→"; font-size: 1.2rem; }
 .cta:disabled { opacity: .55; cursor: default; }
 
+/* 生成参数：泼溅数量预设 + 尺寸比例 */
+.gen-controls { display: flex; flex-direction: column; gap: var(--s2); }
+.control-row { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); }
+.segmented {
+  display: inline-flex; gap: 2px; padding: 2px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.seg {
+  border: 0; cursor: pointer;
+  padding: var(--s1) var(--s3);
+  border-radius: var(--radius-pill);
+  background: transparent; color: var(--ink-muted);
+  font: 500 var(--fs-label)/1 var(--font-mono); letter-spacing: var(--tracking-label);
+  transition: background .15s ease, color .15s ease;
+}
+.seg.active { background: var(--hot); color: var(--on-hot); }
+.seg:disabled { cursor: default; opacity: .55; }
+.scale-slider { width: 100%; accent-color: var(--hot); cursor: pointer; }
+.scale-slider:disabled { opacity: .55; cursor: default; }
+
 /* 元信息 + 许可 */
 .meta-block { display: flex; flex-direction: column; gap: var(--s2); margin-top: auto; }
 .meta-row {
@@ -62,6 +83,8 @@
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .license-note { line-height: 1.5; text-transform: none; opacity: .85; }
+/* 硬件回退等需要用户留意的提示——本屏唯一用到强调色的文字。 */
+.warn-note { color: var(--hot); opacity: 1; }
 
 /* —— 内容区 —— */
 .content {

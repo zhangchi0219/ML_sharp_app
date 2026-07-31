@@ -12,9 +12,16 @@ export async function getHistory(): Promise<Generation[]> {
   return r.json();
 }
 
-export async function generate(file: File): Promise<Generation> {
+export interface GenerateOptions {
+  scale?: number; // 尺寸比例，默认 1
+  density?: number; // 泼溅密度（保留比例），默认 1
+}
+
+export async function generate(file: File, opts: GenerateOptions = {}): Promise<Generation> {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("scale", String(opts.scale ?? 1));
+  fd.append("density", String(opts.density ?? 1));
   const r = await fetch("/api/generate", { method: "POST", body: fd });
   if (!r.ok) {
     let msg = `生成失败 (${r.status})`;

@@ -1,11 +1,8 @@
 """SQLite + SQLModel：引擎与会话。"""
 
-from pathlib import Path
-
 from sqlmodel import Session, SQLModel, create_engine
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-DB_PATH = DATA_DIR / "sharp.db"
+from . import paths
 
 _engine = None
 
@@ -13,9 +10,10 @@ _engine = None
 def init_db() -> None:
     """创建数据目录、引擎与表。"""
     global _engine
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # 路径在此处（而非 import 时）解析，安装态与 SHARP_DATA_DIR 覆盖才能生效。
+    paths.ensure_data_dirs()
     _engine = create_engine(
-        f"sqlite:///{DB_PATH.as_posix()}",
+        f"sqlite:///{paths.db_path().as_posix()}",
         connect_args={"check_same_thread": False},
     )
     # 确保模型已注册到 metadata 再建表。

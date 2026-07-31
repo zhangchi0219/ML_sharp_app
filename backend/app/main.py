@@ -4,29 +4,29 @@ from __future__ import annotations
 
 import io as _io
 import logging
+import math
 import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from sqlmodel import select
 
-from . import db, sharp_runner
+from . import db, paths, sharp_runner
 from .models import Generation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 LOGGER = logging.getLogger("sharp_app")
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-UPLOAD_DIR = DATA_DIR / "uploads"
-GAUSS_DIR = DATA_DIR / "gaussians"
-THUMB_DIR = DATA_DIR / "thumbs"
-for _d in (UPLOAD_DIR, GAUSS_DIR, THUMB_DIR):
-    _d.mkdir(parents=True, exist_ok=True)
+# StaticFiles 在挂载时就要求目录存在，故这里先建好。
+paths.ensure_data_dirs()
+UPLOAD_DIR = paths.uploads_dir()
+GAUSS_DIR = paths.gaussians_dir()
+THUMB_DIR = paths.thumbs_dir()
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
 MAX_BYTES = 40 * 1024 * 1024  # 40MB
@@ -90,10 +90,12 @@ def _count_ply_vertices(ply_path: Path) -> int | None:
 
 @app.get("/api/health")
 def health() -> dict:
+    """就绪状态 + 硬件信息。硬件信息是把应用发给别人后最需要的诊断依据。"""
     return {
         "ready": sharp_runner.is_ready(),
         "device": sharp_runner.device(),
         "error": _warmup_error,
+        **sharp_runner.device_info(),
     }
 
 
@@ -107,7 +109,11 @@ def history() -> list[dict]:
 
 
 @app.post("/api/generate")
-async def generate(file: UploadFile = File(...)) -> dict:
+async def generate(
+    file: UploadFile = File(...),
+    scale: float = Form(1.0),
+    density: float = Form(1.0),
+) -> dict:
     if not sharp_runner.is_ready():
         raise HTTPException(503, f"SHARP 模型未就绪：{_warmup_error or '正在加载，请稍候'}")
 
@@ -135,11 +141,19 @@ async def generate(file: UploadFile = File(...)) -> dict:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"无法读取图片：{exc}") from exc
 
+    # 生成参数：尺寸比例 [0.5, 2.0]，泼溅密度（保留比例）(0.05, 1.0]。
+    # 必须先挡住 NaN/Inf：pydantic 默认接受 float("nan")，而 min/max 对 NaN 是恒等的
+    # （max(nan, 0.5) 仍是 nan），夹取会整个失效，最终写出一份全是 NaN 的 .ply。
+    if not (math.isfinite(scale) and math.isfinite(density)):
+        raise HTTPException(400, "参数 scale / density 必须是有限数值")
+    scale_mul = min(max(scale, 0.5), 2.0)
+    keep_ratio = min(max(density, 0.05), 1.0)
+
     # SHARP 推理。
     ply_path = GAUSS_DIR / f"{gen_id}.ply"
     t0 = time.time()
     try:
-        sharp_runner.predict(image_path, ply_path)
+        sharp_runner.predict(image_path, ply_path, scale_mul=scale_mul, keep_ratio=keep_ratio)
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("生成失败")
         raise HTTPException(500, f"生成失败：{exc}") from exc
@@ -166,7 +180,7 @@ async def generate(file: UploadFile = File(...)) -> dict:
 # 若 frontend/dist 存在（已 `npm run build`），把它挂到 "/"——这样后端一个进程即可
 # 同时提供 API、静态产物与前端页面，无需再单独跑 Vite。必须在所有 /api、/files
 # 之后挂载，否则 "/" 会抢占它们（Starlette 按注册顺序匹配）。
-FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+FRONTEND_DIST = paths.frontend_dist()
 if (FRONTEND_DIST / "index.html").exists():
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
     LOGGER.info("已挂载前端静态目录：%s", FRONTEND_DIST)

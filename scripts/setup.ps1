@@ -4,9 +4,9 @@
     1) 用系统 Python 建 .venv
     2) 安装 PyTorch (CUDA 12.8, 适配 RTX 5080 Blackwell sm_120)
     3) 安装 ml-sharp 预测路径所需依赖（不含 gsplat —— 仅渲染视频才需要它）
-    4) editable 安装 third_party/ml-sharp（--no-deps，避免拉入 gsplat）
-    5) 安装后端依赖（FastAPI 等）
-    6) 校验 torch CUDA 与 sharp 可导入
+    4) 安装后端与桌面外壳依赖（FastAPI / uvicorn / pywebview 等）
+    5) 校验 torch CUDA 与 sharp 可导入
+  注：不对 third_party/ml-sharp 执行 pip install，运行时经 sys.path 直接 import。
 #>
 $ErrorActionPreference = 'Stop'
 
@@ -38,8 +38,8 @@ Invoke-Pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download
 # 2) ml-sharp 预测依赖（去掉 gsplat）
 Invoke-Pip install click "imageio[ffmpeg]" matplotlib pillow-heif plyfile scipy timm
 
-# 3) 后端依赖
-Invoke-Pip install fastapi "uvicorn[standard]" python-multipart sqlmodel pytest
+# 3) 后端依赖 + 桌面外壳（pywebview 在 Windows 上走系统自带的 WebView2，只需 pythonnet）
+Invoke-Pip install fastapi "uvicorn[standard]" python-multipart sqlmodel pytest pywebview
 
 # 注：不对 third_party/ml-sharp 执行 `pip install`。它是纯 Python 的 src-layout 包，
 # 后端在运行时把 `third_party/ml-sharp/src` 加入 sys.path 直接 import（见 backend/app/sharp_runner.py）。

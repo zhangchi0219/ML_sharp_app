@@ -10,11 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 让 `import app...` 可用
 
-from app import sharp_runner  # noqa: E402
+from app import paths, sharp_runner  # noqa: E402
 
-REPO = Path(__file__).resolve().parents[1]
-SAMPLE = REPO / "third_party" / "ml-sharp" / "data" / "teaser.jpg"
-OUT = REPO / "backend" / "data" / "_smoke"
+SAMPLE = paths.sharp_src().parent / "data" / "teaser.jpg"
+OUT = paths.data_dir() / "_smoke"
 
 
 def _header_lines(ply: Path) -> list[str]:
@@ -52,6 +51,14 @@ def main() -> None:
     t = time.time()
     sharp_runner.predict(SAMPLE, OUT / "teaser2.ply")
     print(f"[predict#2 warm] {time.time() - t:.2f}s")
+
+    # 显存峰值：决定这个应用能在多大的卡上跑，写进 README 的硬件要求。
+    info = sharp_runner.device_info()
+    if info["vramPeakMb"] is not None:
+        print(
+            f"[vram] {info['deviceName']} · 峰值 {info['vramPeakMb']} MB "
+            f"/ 总量 {info['vramTotalMb']} MB"
+        )
 
     print("SMOKE-OK")
 

@@ -14,14 +14,17 @@
 
 ## 架构
 
-```
-浏览器 (React + Three.js)  ──/api,/files──>  FastAPI (:8000)
-  · 拖拽上传                 (vite :5173 代理)   · 常驻 SHARP 模型（热推理）
-  · GaussianSplats3D 查看器                       · SQLite 历史
-  · 历史画廊                                       · 静态服务 .ply / 缩略图
+```text
+原生窗口 (pywebview / WebView2)  ──同进程──>  FastAPI (随机空闲端口)
+  · React + Three.js 前端                        · 常驻 SHARP 模型（热推理）
+  · 拖拽上传 / GaussianSplats3D 查看器           · SQLite 历史
+  · 历史画廊                                      · 静态服务 .ply / 缩略图 / 前端产物
 ```
 
-- **后端**（`backend/`）：FastAPI。启动时把 SHARP 模型加载进显存并常驻，重复推理 <1 秒。
+日常使用是一个桌面应用（`desktop.py`）：窗口与服务在同一个进程里，无控制台、无地址栏。
+开发时也可以退回浏览器模式（`scripts/app.ps1`）或前后端分离热更新（`scripts/dev.ps1`）。
+
+- **后端**（`backend/`）：FastAPI。启动时把 SHARP 模型加载进显存并常驻，热推理约 1 秒（见「性能」）。
   通过把 `third_party/ml-sharp/src` 加入 `sys.path` 直接 import 其**预测路径**
   （`sharp.models` / `sharp.utils`），刻意**不**走 `sharp.cli`（那会牵连仅用于视频渲染的
   `gsplat`，在 Windows 上需编译 CUDA 扩展）。见 `backend/app/sharp_runner.py`。
@@ -32,10 +35,15 @@
 
 ## 环境要求
 
-- Windows（本仓库脚本为 PowerShell）；推理需 **NVIDIA GPU**（已在 RTX 5080 / CUDA 12.8 上验证）。
-  无 GPU 也能跑（CPU，较慢）。
+- Windows（本仓库脚本为 PowerShell）。桌面窗口用系统自带的 **WebView2**（Win11 已预装）。
 - 已安装 **Python 3.11+** 与 **Node 18+**。
-- 约 8 GB 磁盘（PyTorch + 依赖 + 模型权重）。
+- 约 10 GB 磁盘（venv 7.5 GB + 模型权重 2.7 GB）。
+- **显卡**：不限于某一型号。装的是 CUDA 12.8 轮子，`torch.cuda.get_arch_list()` 覆盖
+  `sm_61 … sm_120`，即 GTX 10 系一直到 RTX 50 系都能用，**换卡不需要改任何代码**。
+  - **显存 ≥ 8 GB**：实测单张推理峰值 **7061 MB**（RTX 5080，1536×1536 内部分辨率）。
+    6 GB 的卡大概率 OOM。
+  - 无 NVIDIA GPU 时自动回退 CPU（界面会明确提示），能跑但慢很多。
+  - RTX 50 系（Blackwell, sm_120）**必须**用 cu128 轮子，`scripts\setup.ps1` 已指定。
 
 ## 安装
 
@@ -50,28 +58,35 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 npm install --prefix frontend
 ```
 
-> RTX 5080 属 Blackwell(sm_120)，**必须**用 CUDA 12.8 的 PyTorch 轮子
-> （`scripts\setup.ps1` 已指定 `--index-url https://download.pytorch.org/whl/cu128`）。
-> 模型权重在首次推理时自动从 Apple CDN 下载并缓存到 `~/.cache/torch/hub/checkpoints/`。
+> 模型权重在首次推理时自动从 Apple CDN 下载并缓存到 `~/.cache/torch/hub/checkpoints/`
+> （约 2.7 GB，只下一次）。
 
 ## 运行
 
-### 便捷启动（推荐，单进程一键）
-
-构建一次前端后由 FastAPI 一个进程托管，无需再单独跑 Vite：
+### 桌面应用（推荐）
 
 ```powershell
 # 双击根目录的「启动 SHARP.bat」，或在终端：
-powershell -ExecutionPolicy Bypass -File scripts\app.ps1
-# 首次会自动 npm run build；模型加载完成后自动打开 http://localhost:8000
-# 改了前端代码要更新静态产物时：scripts\app.ps1 -Rebuild
+powershell -ExecutionPolicy Bypass -File scripts\desktop.ps1
+# 前端产物缺失时会自动 npm run build；改了前端代码要更新界面：加 -Rebuild
 ```
+
+窗口会**立刻**出现并显示启动页，模型在后台加载（约 20–30 秒，首次还要先下权重），
+就绪后自动切到应用界面。端口自动选空闲值，同时开两份也不冲突。关窗即退出。
 
 想要桌面图标，运行一次：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-shortcut.ps1
-# 在桌面生成「SHARP 高斯泼溅」快捷方式，双击即启动（关闭窗口即停止服务）
+# 在桌面生成「SHARP 高斯泼溅」快捷方式，直接指向 pythonw desktop.py，全程无控制台
+```
+
+### 浏览器模式（要看服务日志时用）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\app.ps1
+# FastAPI 单进程托管前端，模型就绪后自动打开 http://localhost:8000
+# 控制台可见，方便排查；强制重建前端：scripts\app.ps1 -Rebuild
 ```
 
 ### 开发模式（前后端分离，热更新）
@@ -99,14 +114,86 @@ npm run dev --prefix frontend
 
 ## 目录
 
-```
-backend/app/        FastAPI 应用：main / sharp_runner(热模型) / db / models
-backend/smoke.py    SHARP 集成冒烟脚本
+```text
+desktop.py          桌面入口：pywebview 窗口 + 进程内 uvicorn（日常启动走这里）
+backend/app/        FastAPI 应用：main / sharp_runner(热模型) / db / models / paths
+backend/smoke.py    SHARP 集成冒烟脚本（含显存峰值实测）
 frontend/src/       React 应用：App / components(Uploader/SplatViewer/Gallery) / lib
-scripts/            setup.ps1（环境） · dev.ps1（启动）
+scripts/            setup.ps1（环境） · desktop.ps1（桌面） · app.ps1（浏览器） · dev.ps1（开发）
+                    profile_predict.py（分段计时） · verify_equivalence.py（等价校验）
+                    prune-runtime.ps1（venv 瘦身，默认 dry-run）
 third_party/ml-sharp  Apple SHARP 源码（git clone，未纳入本仓库）
-backend/data/       运行时：uploads/ gaussians/ thumbs/ sharp.db（已 gitignore）
+backend/data/       运行时：uploads/ gaussians/ thumbs/ logs/ sharp.db（已 gitignore）
 ```
+
+## 性能
+
+RTX 5080、1536×1536 内部分辨率、1,179,648 个高斯、GPU 空闲时实测（5 次取中位数）：
+
+| 阶段 | 耗时 | 占比 |
+| --- | --- | --- |
+| 读图 + 上传 GPU | 0.012s | 1.2% |
+| **前向推理（神经网络）** | **0.865s** | **85.5%** |
+| unproject（协方差分解） | 0.082s | 8.1% |
+| 导出 .ply（66 MB） | 0.049s | 4.9% |
+| **合计** | **1.01s** | |
+
+上游 `ml-sharp` 的导出路径原本要 **5.29s**，其中 4.2s 耗在三处与模型无关的 CPU 瓶颈上。
+`backend/app/sharp_runner.py` 在 import 阶段把它们替换掉（不修改 `third_party`）：
+
+| 上游实现 | 本仓库的替代 | 提速 |
+| --- | --- | --- |
+| 118 万个 3×3 搬到 CPU 做 float64 `svd` | GPU 分块 `eigh`（`_decompose_fast`） | 10.4× |
+| scipy `Rotation.from_matrix` 转四元数 | 向量化四元数（同上，一并消除） | — |
+| `list(map(tuple, ...))` 逐行造 Python tuple | 零拷贝结构化数组（`_save_ply_fast`） | 6.6× |
+
+端到端 **5.29s → 1.03s（5.1×）**。与上游输出的差异（teaser.jpg，118 万个高斯实测）：
+
+- `x/y/z`、`f_dc_*`、`opacity` —— **逐位相同**（这些量不经过特征分解）。
+- `scale_*` —— 最大差 2.0e-5（float32 `eigh` 与 float64 `svd` 的数值差异）。
+- `rot_*` —— 可能整体差一个符号（最大差 √2）。四元数 q 与 −q 表示同一个旋转，
+  真正的不变量是重建出的协方差 R·diag(s²)·Rᵀ，实测与原始协方差差 8.9e-7
+  （上游自己是 5.4e-7，同一量级）。
+
+- 复算耗时：`.\.venv\Scripts\python.exe scripts\profile_predict.py 5`
+- 验证等价：`.\.venv\Scripts\python.exe scripts\verify_equivalence.py`
+
+> cusolver 的批量 `syev` 在本机（CUDA 12.8）超过约 3 万的 batch 就报
+> `CUSOLVER_STATUS_INVALID_VALUE`，与显存余量无关，故按 8192 分块；
+> 若在别的 GPU 上仍失败会自动退回 CPU（慢约 1.4s/张，不会崩）。
+
+## 数据与路径
+
+所有路径由 `backend/app/paths.py` 统一解析，代码里不再有 `__file__` 反推的硬编码。
+开发态数据落在 `backend/data/`；下列环境变量可逐项覆盖（打包分发时会用到）：
+
+| 变量 | 作用 |
+| --- | --- |
+| `SHARP_DATA_DIR` | 数据根：SQLite、uploads、gaussians、thumbs、logs |
+| `SHARP_APP_ROOT` | 资源根（只读） |
+| `SHARP_SRC` | ml-sharp 源码目录 |
+| `SHARP_DIST` | 前端构建产物目录 |
+| `SHARP_CHECKPOINT` | 随包分发的模型权重；未设置则走 CDN 下载 |
+
+桌面模式下 `sys.stdout/stderr` 为 None（pythonw 无控制台），日志写入
+`<数据根>/logs/desktop.log`（2 MB 轮转，保留 2 份）。出问题先看这个文件。
+
+## 瘦身（分发用）
+
+`.venv` 有 7.50 GB，其中约 2.9 GB 运行时根本用不到：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prune-runtime.ps1          # 只看清单
+powershell -ExecutionPolicy Bypass -File scripts\prune-runtime.ps1 -Apply   # 真删
+.\.venv\Scripts\python.exe backend\smoke.py                                 # 删完必须验证
+```
+
+删 `*.lib`（2.62 GB，静态链接库，纯编译期产物）、`__pycache__`（211 MB，会自动重建）、
+`imageio_ffmpeg`（84 MB，预测路径不碰视频），**7.50 GB → 4.59 GB**。
+默认保留 `pip`/`setuptools`（只值 24 MB，删了就装不了新包），做分发副本时可加 `-IncludePip`。
+
+刻意不动 `torch\lib` 里的 CUDA DLL（cusparse 362 MB、cufft 263 MB 等）——
+torch 在 Windows 上 import 时会预加载，删了可能直接起不来。
 
 ## 说明
 

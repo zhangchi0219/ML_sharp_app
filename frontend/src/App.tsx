@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import Uploader from "./components/Uploader";
+import Uploader, { type GenOptions } from "./components/Uploader";
 import SplatViewer from "./components/SplatViewer";
 import Gallery from "./components/Gallery";
 import { generate, getHealth, getHistory } from "./lib/api";
@@ -38,11 +38,11 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [status]);
 
-  const handleFile = useCallback(async (file: File) => {
+  const handleFile = useCallback(async (file: File, opts: GenOptions) => {
     setStatus("generating");
     setError(null);
     try {
-      const g = await generate(file);
+      const g = await generate(file, opts);
       setCurrent(g);
       setHistory((prev) => [g, ...prev]);
       setStatus("viewing");
@@ -53,8 +53,15 @@ export default function App() {
   }, []);
 
   const busy = status === "generating";
-  const deviceLabel = health?.device ? health.device.toUpperCase() : "…";
   const modelState = health?.ready ? "就绪" : health?.error ? "错误" : "加载中";
+  // 有 GPU 时显示型号与显存（"NVIDIA GeForce" 前缀太长，去掉），否则退回设备类型。
+  const deviceLabel = health?.deviceName
+    ? `${health.deviceName.replace(/^NVIDIA GeForce /, "")}${
+        health.vramTotalMb ? ` · ${Math.round(health.vramTotalMb / 1024)}GB` : ""
+      }`
+    : health?.device
+      ? health.device.toUpperCase()
+      : "…";
 
   return (
     <div className="layout">
@@ -89,6 +96,11 @@ export default function App() {
             <div className="meta-row">
               <span className="label">上次耗时</span>
               <span className="label">{(current.elapsedMs / 1000).toFixed(2)}S</span>
+            </div>
+          )}
+          {health && !health.cudaAvailable && (
+            <div className="license-note label warn-note">
+              未检测到可用 NVIDIA GPU，将回退到 CPU 推理，单张可能需要数分钟。
             </div>
           )}
           <div className="license-note label">
