@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import Uploader, { type GenOptions } from "./components/Uploader";
+import Uploader from "./components/Uploader";
+import ParamPanel from "./components/ParamPanel";
 import SplatViewer from "./components/SplatViewer";
 import Gallery from "./components/Gallery";
-import { generate, getHealth, getHistory } from "./lib/api";
-import type { Generation, Health } from "./lib/types";
+import { generate, getHealth, getHistory, regenerate } from "./lib/api";
+import { DEFAULT_PARAMS, type GenParams, type Generation, type Health } from "./lib/types";
 
 type Status = "idle" | "generating" | "viewing" | "error";
 
@@ -14,6 +15,8 @@ export default function App() {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  // 参数 state 提在这里：上传、同图重跑、历史回填三个消费方要读写同一份。
+  const [params, setParams] = useState<GenParams>(DEFAULT_PARAMS);
 
   // 初次加载：拉取健康状态与历史。
   useEffect(() => {
@@ -22,12 +25,20 @@ export default function App() {
       .then((h) => {
         setHistory(h);
         if (h.length > 0) {
-          setCurrent(h[0]);
-          setStatus("viewing");
+          selectGeneration(h[0]);
         }
       })
       .catch(() => {});
+    // 只在挂载时跑一次；selectGeneration 只 setState，不依赖任何会变的闭包值。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** 选中一条记录：切换查看器，并把它当时的参数回填到面板（老记录没有则保持现状）。 */
+  const selectGeneration = (g: Generation) => {
+    setCurrent(g);
+    setStatus("viewing");
+    if (g.params) setParams(g.params);
+  };
 
   // 生成计时。
   useEffect(() => {
@@ -38,11 +49,12 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [status]);
 
-  const handleFile = useCallback(async (file: File, opts: GenOptions) => {
+  /** 跑一次生成并把结果推进历史。上传与重跑只差调用哪个接口。 */
+  const runGeneration = useCallback(async (task: () => Promise<Generation>) => {
     setStatus("generating");
     setError(null);
     try {
-      const g = await generate(file, opts);
+      const g = await task();
       setCurrent(g);
       setHistory((prev) => [g, ...prev]);
       setStatus("viewing");
@@ -51,6 +63,17 @@ export default function App() {
       setStatus("error");
     }
   }, []);
+
+  const handleFile = useCallback(
+    (file: File) => runGeneration(() => generate(file, params)),
+    [runGeneration, params],
+  );
+
+  // 同图重跑：复用已存的源图，改完参数约 1 秒出结果，不必重新拖文件。
+  const handleRegenerate = useCallback(() => {
+    if (!current) return;
+    runGeneration(() => regenerate(current.id, params));
+  }, [runGeneration, current, params]);
 
   const busy = status === "generating";
   const modelState = health?.ready ? "就绪" : health?.error ? "错误" : "加载中";
@@ -78,6 +101,13 @@ export default function App() {
         </h1>
 
         <Uploader onFile={handleFile} busy={busy} />
+
+        <ParamPanel
+          params={params}
+          onChange={setParams}
+          busy={busy}
+          detectedFocal35={current?.detectedFocal35 ?? null}
+        />
 
         <div className="meta-block">
           <div className="meta-row">
@@ -112,11 +142,24 @@ export default function App() {
       <main className="content">
         <header className="content-head">
           <span className="label">查看器 / VIEWER</span>
-          {current && (
-            <a className="label download-link" href={current.plyUrl} download>
-              下载 .PLY ↓
-            </a>
-          )}
+          <span className="head-actions">
+            {current && (
+              <button
+                type="button"
+                className="label regen-btn"
+                onClick={handleRegenerate}
+                disabled={busy}
+                title="用当前参数重跑这张图，结果作为新记录加入历史"
+              >
+                ↻ 用当前参数重新生成
+              </button>
+            )}
+            {current && (
+              <a className="label download-link" href={current.plyUrl} download>
+                下载 .PLY ↓
+              </a>
+            )}
+          </span>
         </header>
 
         <div className="stage">
@@ -145,16 +188,9 @@ export default function App() {
         <section className="gallery-section">
           <div className="content-head">
             <span className="label">历史 / HISTORY · {history.length}</span>
-            <span className="label">点击缩略图回看</span>
+            <span className="label">点击缩略图回看并载入当时的参数</span>
           </div>
-          <Gallery
-            items={history}
-            activeId={current?.id ?? null}
-            onSelect={(g) => {
-              setCurrent(g);
-              setStatus("viewing");
-            }}
-          />
+          <Gallery items={history} activeId={current?.id ?? null} onSelect={selectGeneration} />
         </section>
       </main>
     </div>

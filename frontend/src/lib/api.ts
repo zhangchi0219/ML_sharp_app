@@ -1,4 +1,4 @@
-import type { Generation, Health } from "./types";
+import type { GenParams, Generation, Health } from "./types";
 
 export async function getHealth(): Promise<Health> {
   const r = await fetch("/api/health");
@@ -12,26 +12,33 @@ export async function getHistory(): Promise<Generation[]> {
   return r.json();
 }
 
-export interface GenerateOptions {
-  scale?: number; // 尺寸比例，默认 1
-  density?: number; // 泼溅密度（保留比例），默认 1
+/** 从响应里取出后端给的中文错误说明（FastAPI 放在 detail 里）。 */
+async function readError(r: Response): Promise<never> {
+  let msg = `生成失败 (${r.status})`;
+  try {
+    const j = await r.json();
+    if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+  } catch {
+    /* 响应不是 JSON，沿用状态码文案 */
+  }
+  throw new Error(msg);
 }
 
-export async function generate(file: File, opts: GenerateOptions = {}): Promise<Generation> {
+export async function generate(file: File, params: GenParams): Promise<Generation> {
   const fd = new FormData();
   fd.append("file", file);
-  fd.append("scale", String(opts.scale ?? 1));
-  fd.append("density", String(opts.density ?? 1));
+  // 参数走单个 JSON 字段，加参数时前后端各只改一处。
+  fd.append("params", JSON.stringify(params));
   const r = await fetch("/api/generate", { method: "POST", body: fd });
-  if (!r.ok) {
-    let msg = `生成失败 (${r.status})`;
-    try {
-      const j = await r.json();
-      if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
-    } catch {
-      /* ignore */
-    }
-    throw new Error(msg);
-  }
+  if (!r.ok) return readError(r);
+  return r.json();
+}
+
+/** 用新参数重跑已有记录的源图，产出一条新记录（原记录保留，便于对比）。 */
+export async function regenerate(sourceId: string, params: GenParams): Promise<Generation> {
+  const fd = new FormData();
+  fd.append("params", JSON.stringify(params));
+  const r = await fetch(`/api/regenerate/${sourceId}`, { method: "POST", body: fd });
+  if (!r.ok) return readError(r);
   return r.json();
 }

@@ -114,12 +114,20 @@ export default function SplatViewer({ plyUrl }: Props) {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       pressed.clear();
+
+      // dispose() 是 async 的，且必定以 NotFoundError 结束——这是库自身的 bug：
+      // 它在结尾无条件执行 `document.body.removeChild(this.rootElement)`，
+      // 但只有在**自己创建** rootElement 时才会把它挂到 body 上；我们传的是
+      // React 管理的容器 div，从来不是 body 的直接子节点，所以每次卸载都抛。
+      //
+      // 这个抛出是无害的：停渲染循环、renderer.dispose()、splatMesh.dispose()、
+      // 终止排序 worker、解绑事件监听——全部在抛出点之前完成，GPU 资源不会泄漏。
+      // 被跳过的只有 7 个字段置 null，而这个 viewer 对象在此之后就被丢弃了。
+      // 故这里只需吞掉这个 rejection，避免污染控制台。
       try {
-        if (viewer && typeof viewer.dispose === "function") {
-          viewer.dispose(); // 停止渲染循环并释放 GPU 资源
-        }
+        viewer?.dispose?.()?.catch?.(() => {});
       } catch {
-        /* 忽略卸载竞态 */
+        /* 同步抛出的卸载竞态，同样忽略 */
       }
     };
   }, [plyUrl]);

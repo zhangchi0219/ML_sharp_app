@@ -21,3 +21,7 @@ class Generation(SQLModel, table=True):
     elapsed_ms: int | None = None
     status: str = "done"
     created_at: datetime = Field(default_factory=_utcnow)
+    # 本次生成用的参数（GenParams 的 JSON）。老记录为 None，前端回填时用默认值兜住。
+    params: str | None = None
+    # 图片 EXIF 推出的 35mm 等效焦距；UI 的「自动」档显示它。
+    detected_focal35: float | None = None

@@ -21,7 +21,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import logging
+import math
 import sys
 import threading
 from pathlib import Path
@@ -52,7 +55,12 @@ LOGGER = logging.getLogger("sharp_runner")
 
 DEFAULT_MODEL_URL = "https://ml-site.cdn-apple.com/models/sharp/sharp_2572gikvuh.pt"
 # 与 sharp/cli/predict.py 一致：模型内部固定在 1536x1536 上推理。
+# 这个值不可调：它等于 SPN 的 patch_size*4（sharp/models/encoders/spn_encoder.py），
+# 而 split/merge 假设方形网格、金字塔最低层必须正好 384 才能喂给 img_size=384 的 ViT。
 _INTERNAL_SHAPE = (1536, 1536)
+
+# 35mm 全画幅对角线，用于 f_px ↔ 等效焦距(mm) 的互转（与 sharp.utils.io 同一套常数）。
+_FILM_DIAGONAL_MM = math.hypot(36.0, 24.0)
 
 _predictor = None
 _device: str | None = None
@@ -390,6 +398,52 @@ def _predict_image(image: np.ndarray, f_px: float) -> Gaussians3D:
     return gaussians
 
 
+def _f_px_to_focal35(f_px: float, width: int, height: int) -> float:
+    """f_px → 35mm 等效焦距(mm)。sharp.utils.io.convert_focallength 的逆运算。"""
+    return f_px * _FILM_DIAGONAL_MM / math.hypot(width, height)
+
+
+# delta_factor 各字段的出厂值（sharp.models.params.DeltaFactor）。UI 传的是「相对默认值的倍率」，
+# 这样 1.0× 恒等于原生 SHARP 行为，用户不必理解 0.001 这种数量级。
+_DELTA_DEFAULTS = {"color": 0.1, "scale": 1.0, "quaternion": 1.0, "opacity": 1.0, "z": 0.001}
+_DEFAULT_MAX_SCALE = 10.0
+
+
+@contextlib.contextmanager
+def _composed_with(gains: dict[str, float], max_scale: float):
+    """临时改写 GaussianComposer 的推理参数，退出时还原。必须在 _predict_lock 内调用。
+
+    GaussianComposer（sharp/models/composer.py）不含任何 nn.Parameter / buffer，
+    delta_factor 与 max_scale 都是纯 Python 属性，且每次 forward 都重新读
+    （见 _forward_mean / _scale_activation / _color_activation），
+    所以改属性即刻生效——不必重载那 2.7 GB 权重（重载要 20–30 秒）。
+
+    delta_factor 是一个**共享的 dataclass 实例**，绝不能原地改字段：那会污染后续所有请求。
+    这里用 dataclasses.replace 造一个新实例整体换上，finally 换回原对象引用。
+    """
+    assert _predictor is not None
+    composer = _predictor.gaussian_composer
+
+    scaled = {k: _DELTA_DEFAULTS[k] * gains.get(k, 1.0) for k in _DELTA_DEFAULTS}
+    unchanged = all(
+        abs(scaled[k] - _DELTA_DEFAULTS[k]) < 1e-12 for k in _DELTA_DEFAULTS
+    ) and abs(max_scale - _DEFAULT_MAX_SCALE) < 1e-12
+    if unchanged:
+        # 默认路径零开销，也保证默认参数的输出与改造前逐字节一致。
+        yield
+        return
+
+    original_delta_factor = composer.delta_factor
+    original_max_scale = composer.max_scale
+    try:
+        composer.delta_factor = dataclasses.replace(original_delta_factor, **scaled)
+        composer.max_scale = max_scale
+        yield
+    finally:
+        composer.delta_factor = original_delta_factor
+        composer.max_scale = original_max_scale
+
+
 def _postprocess_gaussians(
     gaussians: Gaussians3D, *, scale_mul: float = 1.0, keep_ratio: float = 1.0
 ) -> Gaussians3D:
@@ -428,14 +482,27 @@ def predict(
     *,
     scale_mul: float = 1.0,
     keep_ratio: float = 1.0,
-) -> Path:
-    """从一张图片生成 3DGS .ply，返回 .ply 路径。线程安全（单 GPU 串行）。
+    focal35: float | None = None,
+    gains: dict[str, float] | None = None,
+    max_scale: float = _DEFAULT_MAX_SCALE,
+) -> float:
+    """从一张图片生成 3DGS .ply，返回图片自带（EXIF 推出）的 35mm 等效焦距。
 
-    scale_mul：泼溅尺寸整体比例（1.0=原始）。
-    keep_ratio：保留的泼溅比例（1.0=全部，<1.0 按不透明度裁剪）。
+    线程安全（单 GPU 串行）。全部参数取默认值时，输出与未引入参数功能前逐字节一致。
+
+    导出后处理：
+        scale_mul：泼溅尺寸整体比例（1.0=原始）。
+        keep_ratio：保留的泼溅比例（1.0=全部，<1.0 按不透明度裁剪）。
+    推理参数：
+        focal35：35mm 等效焦距(mm)。None=沿用图片 EXIF（无 EXIF 时上游按 30mm 兜底）。
+            它同时决定 disparity_factor（单目深度→米制）与反投影内参，是影响纵深最大的单一变量。
+        gains：delta_factor 各项相对默认值的倍率，见 _DELTA_DEFAULTS。
+        max_scale：尺度激活上界。**必须 > 1**，否则 composer._get_scale_activation_constant 会除零。
     """
     if _predictor is None:
         raise RuntimeError("SHARP 模型尚未加载，请先调用 warmup()。")
+    if max_scale <= 1.0:
+        raise ValueError(f"max_scale 必须 > 1（收到 {max_scale}）")
     image_path = Path(image_path)
     output_ply_path = Path(output_ply_path)
     output_ply_path.parent.mkdir(parents=True, exist_ok=True)
@@ -443,7 +510,12 @@ def predict(
     with _predict_lock:
         image, _icc, f_px = io.load_rgb(image_path)
         height, width = image.shape[:2]
-        gaussians = _predict_image(image, f_px)
+        detected_focal35 = _f_px_to_focal35(f_px, width, height)
+        if focal35 is not None:
+            f_px = io.convert_focallength(width, height, focal35)
+
+        with _composed_with(gains or {}, max_scale):
+            gaussians = _predict_image(image, f_px)
         gaussians = _postprocess_gaussians(gaussians, scale_mul=scale_mul, keep_ratio=keep_ratio)
         _save_ply_fast(gaussians, f_px, (height, width), output_ply_path)
-    return output_ply_path
+    return detected_focal35

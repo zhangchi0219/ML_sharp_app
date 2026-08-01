@@ -75,6 +75,44 @@
 .scale-slider { width: 100%; accent-color: var(--hot); cursor: pointer; }
 .scale-slider:disabled { opacity: .55; cursor: default; }
 
+/* 参数说明：小字、不大写、低对比——不与上面的标签抢注意力。 */
+.param-hint {
+  display: block; margin-top: 2px;
+  text-transform: none; opacity: .6; line-height: 1.4;
+}
+
+/* 高级参数折叠区：用原生 <details>，无需 JS。 */
+.advanced {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  padding-top: var(--s2);
+}
+.advanced > summary {
+  cursor: pointer; list-style: none;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: var(--s1) 0;
+  color: var(--ink-muted);
+}
+.advanced > summary::-webkit-details-marker { display: none; }
+.advanced > summary::after { content: "+"; font-size: 1rem; line-height: 1; }
+.advanced[open] > summary::after { content: "–"; }
+.advanced > summary:hover { color: var(--hot); }
+.advanced-body {
+  display: flex; flex-direction: column; gap: var(--s3);
+  padding: var(--s2) 0 var(--s1);
+}
+
+.reset-btn {
+  align-self: flex-start;
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  border-radius: var(--radius-pill);
+  padding: var(--s1) var(--s3);
+  background: transparent; color: var(--ink-muted);
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.reset-btn:hover:not(:disabled) { border-color: var(--hot); color: var(--hot); }
+.reset-btn:disabled { opacity: .4; cursor: default; }
+
 /* 元信息 + 许可 */
 .meta-block { display: flex; flex-direction: column; gap: var(--s2); margin-top: auto; }
 .meta-row {
@@ -90,6 +128,9 @@
 .content {
   padding: var(--s5);
   display: flex; flex-direction: column; gap: var(--s4); height: 100vh;
+  /* 栅格项默认 min-width:auto，会被画廊的 min-content（缩略图数 × 112px）撑开，
+     进而把侧栏挤扁。必须显式归零，让 .gallery 的 overflow-x 真正接管横向溢出。 */
+  min-width: 0;
 }
 .content-head {
   display: flex; justify-content: space-between; align-items: baseline;
@@ -98,6 +139,14 @@
 }
 .download-link { text-decoration: none; color: var(--hot); }
 .download-link:hover { color: var(--ink); }
+.head-actions { display: inline-flex; align-items: baseline; gap: var(--s4); }
+.regen-btn {
+  border: 0; background: transparent; padding: 0;
+  color: var(--ink-muted); cursor: pointer;
+  font: inherit; letter-spacing: inherit;
+}
+.regen-btn:hover:not(:disabled) { color: var(--hot); }
+.regen-btn:disabled { opacity: .45; cursor: default; }
 
 /* 舞台 / 查看器 */
 .stage {
@@ -128,7 +177,7 @@
 }
 
 /* 历史画廊 */
-.gallery-section { flex-shrink: 0; }
+.gallery-section { flex-shrink: 0; min-width: 0; }
 .gallery { display: flex; gap: var(--s3); overflow-x: auto; padding: var(--s3) 0 var(--s2); }
 .gallery-empty { padding: var(--s4) 0; text-transform: none; }
 .thumb {

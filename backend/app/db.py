@@ -20,6 +20,26 @@ def init_db() -> None:
     from . import models  # noqa: F401
 
     SQLModel.metadata.create_all(_engine)
+    _add_missing_columns()
+
+
+# create_all 只建**不存在**的表，不会给已有的表补列——已在用的 sharp.db 需要手动迁移。
+# 这个应用的 schema 演进只有"加可空列"这一种，够不上引入 alembic，直接守卫式 ALTER。
+_ADDED_COLUMNS = {
+    "params": "TEXT",
+    "detected_focal35": "FLOAT",
+}
+
+
+def _add_missing_columns() -> None:
+    """幂等地补齐 generation 表缺失的列。"""
+    assert _engine is not None
+    with _engine.connect() as conn:
+        existing = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(generation)")}
+        for name, sql_type in _ADDED_COLUMNS.items():
+            if name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE generation ADD COLUMN {name} {sql_type}")
+        conn.commit()
 
 
 def get_session() -> Session:

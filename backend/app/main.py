@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import io as _io
+import json
 import logging
-import math
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -14,6 +14,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import select
 
 from . import db, paths, sharp_runner
@@ -30,6 +31,57 @@ THUMB_DIR = paths.thumbs_dir()
 
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
 MAX_BYTES = 40 * 1024 * 1024  # 40MB
+
+
+class GenParams(BaseModel):
+    """一次生成的全部可调参数。范围在此唯一定义——前端 lib/types.ts 的滑块要与之同步。
+
+    NaN/Inf 由 pydantic 的 ge/le 直接挡下（与 NaN 的比较恒为 False → 422）。
+    这条防线必须留着：手写的 min/max 夹取对 NaN 是恒等的（max(nan, 0.5) 仍是 nan），
+    夹取会整个失效，最终写出一份全是 NaN 的 .ply。
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # 导出后处理。
+    scale: float = Field(1.0, ge=0.5, le=2.0, description="泼溅尺寸整体比例")
+    density: float = Field(1.0, gt=0.0, le=1.0, description="按不透明度保留的泼溅比例")
+    # 推理参数。
+    focal35: float | None = Field(None, ge=14.0, le=85.0, description="35mm 等效焦距；None=跟随 EXIF")
+    colorGain: float = Field(1.0, ge=0.0, le=3.0, description="色彩修正强度倍率")
+    scaleGain: float = Field(1.0, ge=0.0, le=3.0, description="大小变化强度倍率")
+    shapeGain: float = Field(1.0, ge=0.0, le=3.0, description="各向异性拉伸强度倍率")
+    opacityGain: float = Field(1.0, ge=0.0, le=3.0, description="不透明度对比强度倍率")
+    depthGain: float = Field(1.0, ge=0.0, le=3.0, description="深度位移强度倍率")
+    # 下界必须 > 1：composer._get_scale_activation_constant 会除以 (max_scale - 1)。
+    maxScale: float = Field(10.0, ge=1.5, le=20.0, description="尺度激活上界")
+
+    def to_runner_kwargs(self) -> dict:
+        """映射到 sharp_runner.predict 的关键字参数。"""
+        return {
+            "scale_mul": self.scale,
+            "keep_ratio": self.density,
+            "focal35": self.focal35,
+            "max_scale": self.maxScale,
+            "gains": {
+                "color": self.colorGain,
+                "scale": self.scaleGain,
+                "quaternion": self.shapeGain,
+                "opacity": self.opacityGain,
+                "z": self.depthGain,
+            },
+        }
+
+
+def _parse_params(raw: str) -> GenParams:
+    """解析前端传来的 params JSON 字符串；无效时抛 400 并带上字段级原因。"""
+    try:
+        return GenParams.model_validate_json(raw)
+    except ValidationError as exc:
+        details = "；".join(
+            f"{'.'.join(str(x) for x in e['loc']) or '参数'}: {e['msg']}" for e in exc.errors()
+        )
+        raise HTTPException(400, f"参数不合法 —— {details}") from exc
 
 # 启动预热若失败，记录原因，让接口给出清晰提示而非整服务崩溃。
 _warmup_error: str | None = None
@@ -70,6 +122,9 @@ def _to_dict(g: Generation) -> dict:
         "elapsedMs": g.elapsed_ms,
         "status": g.status,
         "createdAt": g.created_at.isoformat(),
+        # 迁移前的老记录没有这两项，返回 null；前端用默认值兜住。
+        "params": json.loads(g.params) if g.params else None,
+        "detectedFocal35": g.detected_focal35,
     }
 
 
@@ -108,14 +163,62 @@ def history() -> list[dict]:
         return [_to_dict(r) for r in rows]
 
 
+def _run_generation(
+    *,
+    gen_id: str,
+    image_name: str,
+    thumb_name: str,
+    original_filename: str,
+    params: GenParams,
+) -> dict:
+    """跑一次推理并落库，返回给前端的记录。generate / regenerate 共用。
+
+    image_name / thumb_name 是数据目录下的文件名——regenerate 直接复用源记录的那两份，
+    不再复制文件，因此同一张图的多次生成在画廊里共用缩略图，可并排对比。
+    """
+    if not sharp_runner.is_ready():
+        raise HTTPException(503, f"SHARP 模型未就绪：{_warmup_error or '正在加载，请稍候'}")
+
+    ply_path = GAUSS_DIR / f"{gen_id}.ply"
+    t0 = time.time()
+    try:
+        detected_focal35 = sharp_runner.predict(
+            UPLOAD_DIR / image_name, ply_path, **params.to_runner_kwargs()
+        )
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.exception("生成失败")
+        raise HTTPException(500, f"生成失败：{exc}") from exc
+    elapsed_ms = int((time.time() - t0) * 1000)
+
+    record = Generation(
+        id=gen_id,
+        original_filename=original_filename,
+        image_path=image_name,
+        ply_path=ply_path.name,
+        thumb_path=thumb_name,
+        num_points=_count_ply_vertices(ply_path),
+        elapsed_ms=elapsed_ms,
+        status="done",
+        params=params.model_dump_json(),
+        detected_focal35=detected_focal35,
+    )
+    with db.get_session() as session:
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return _to_dict(record)
+
+
 @app.post("/api/generate")
 async def generate(
     file: UploadFile = File(...),
-    scale: float = Form(1.0),
-    density: float = Form(1.0),
+    # 参数集中在一个 JSON 字段里，而不是逐个 Form(...)：加参数时前后端各只改一处。
+    params: str = Form("{}"),
 ) -> dict:
     if not sharp_runner.is_ready():
         raise HTTPException(503, f"SHARP 模型未就绪：{_warmup_error or '正在加载，请稍候'}")
+
+    gen_params = _parse_params(params)
 
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXT:
@@ -141,39 +244,37 @@ async def generate(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(400, f"无法读取图片：{exc}") from exc
 
-    # 生成参数：尺寸比例 [0.5, 2.0]，泼溅密度（保留比例）(0.05, 1.0]。
-    # 必须先挡住 NaN/Inf：pydantic 默认接受 float("nan")，而 min/max 对 NaN 是恒等的
-    # （max(nan, 0.5) 仍是 nan），夹取会整个失效，最终写出一份全是 NaN 的 .ply。
-    if not (math.isfinite(scale) and math.isfinite(density)):
-        raise HTTPException(400, "参数 scale / density 必须是有限数值")
-    scale_mul = min(max(scale, 0.5), 2.0)
-    keep_ratio = min(max(density, 0.05), 1.0)
-
-    # SHARP 推理。
-    ply_path = GAUSS_DIR / f"{gen_id}.ply"
-    t0 = time.time()
-    try:
-        sharp_runner.predict(image_path, ply_path, scale_mul=scale_mul, keep_ratio=keep_ratio)
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.exception("生成失败")
-        raise HTTPException(500, f"生成失败：{exc}") from exc
-    elapsed_ms = int((time.time() - t0) * 1000)
-
-    record = Generation(
-        id=gen_id,
+    return _run_generation(
+        gen_id=gen_id,
+        image_name=image_path.name,
+        thumb_name=thumb_path.name,
         original_filename=file.filename or f"{gen_id}{ext}",
-        image_path=image_path.name,
-        ply_path=ply_path.name,
-        thumb_path=thumb_path.name,
-        num_points=_count_ply_vertices(ply_path),
-        elapsed_ms=elapsed_ms,
-        status="done",
+        params=gen_params,
     )
+
+
+@app.post("/api/regenerate/{source_id}")
+def regenerate(source_id: str, params: str = Form("{}")) -> dict:
+    """用新参数重跑已有记录的源图，产出一条**新**记录（不覆盖原来的，便于对比）。"""
+    gen_params = _parse_params(params)
+
     with db.get_session() as session:
-        session.add(record)
-        session.commit()
-        session.refresh(record)
-        return _to_dict(record)
+        source = session.get(Generation, source_id)
+        if source is None:
+            raise HTTPException(404, "找不到该生成记录")
+        image_name, thumb_name = source.image_path, source.thumb_path
+        original_filename = source.original_filename
+
+    if not (UPLOAD_DIR / image_name).exists():
+        raise HTTPException(404, f"源图已不存在：{image_name}")
+
+    return _run_generation(
+        gen_id=uuid.uuid4().hex[:12],
+        image_name=image_name,
+        thumb_name=thumb_name,
+        original_filename=original_filename,
+        params=gen_params,
+    )
 
 
 # ── 便捷启动：托管已构建的前端（单进程·单端口）──

@@ -1,7 +1,8 @@
 # ML SHARP App · 照片 → 高斯泼溅
 
 一个本机 Web 应用：上传一张照片，用 **Apple SHARP** 模型在约 1 秒内生成 3D 高斯泼溅（3DGS），
-在浏览器里实时旋转/缩放查看，并可下载 `.ply`。历史生成保存在本地画廊里。
+在浏览器里实时旋转/缩放查看，并可下载 `.ply`。历史生成保存在本地画廊里，
+可调参数并对同一张图反复重跑（见「可调参数」）。
 
 > **SHARP** = *Sharp Monocular View Synthesis in Less Than a Second*（Apple，2025-12）。
 > 单张照片经一次前向推理回归出 3D 高斯表示。论文/项目：<https://github.com/apple/ml-sharp>
@@ -105,6 +106,53 @@ powershell -ExecutionPolicy Bypass -File scripts\dev.ps1
 npm run dev --prefix frontend
 ```
 
+## 可调参数
+
+侧栏面板可以在生成前调参；生成后点「用当前参数重新生成」会**复用已存的源图**重跑（约 1 秒），
+产出一条**新**记录而非覆盖原来的，因此可在画廊里并排对比。点历史缩略图会回看该次结果，
+并把当时的参数回填进面板。参数随记录存进 SQLite。
+
+参数分两类。**导出后处理**不重新推理，只改写结果：
+
+| 参数 | 范围 / 默认 | 作用 |
+| --- | --- | --- |
+| 泼溅数量 | 0.25 / 0.6 / 1.0 | 按不透明度 Top-K 裁剪。原生 118 万个只能减少，无法增加 |
+| 尺寸比例 | 0.5–2.0，默认 1.0 | 所有高斯的 3D 尺度整体缩放 |
+
+**推理参数**真正参与前向计算。它们改写的是 `GaussianComposer` 与 `MultiLayerInitializer`
+的属性——这两个模块**不含任何权重**，属性是纯 Python 值且每次 forward 都重读，
+所以能逐次请求临时改写再还原，**不必重载那 2.7 GB 权重**（见 `sharp_runner._composed_with`）。
+
+| 参数 | 范围 / 默认 | 映射到 | 作用 |
+| --- | --- | --- | --- |
+| 等效焦距 | 14–85mm；默认跟随 EXIF | `f_px` | **对纵深影响最大的单一变量**。广角压缩纵深、长焦拉开纵深 |
+| 色彩强度 | 0–3×，默认 1× | `delta_factor.color` | 0 = 直接用原图下采样色，不做网络修正 |
+| 大小变化 | 0–3×，默认 1× | `delta_factor.scale` | 0 = 所有泼溅一样大 |
+| 形状拉伸 | 0–3×，默认 1× | `delta_factor.quaternion` | 0 = 全是正球，无各向异性 |
+| 通透对比 | 0–3×，默认 1× | `delta_factor.opacity` | 0 = 两层不透明度均匀 |
+| 深度浮雕 | 0–3×，默认 1× | `delta_factor.z` | 放大逐点深度位移，过高会撕裂画面 |
+| 尺度上限 | 1.5–20，默认 10 | `max_scale` | 单个泼溅相对基准尺寸的放大上限 |
+
+后五项在 UI 上是**相对 SHARP 默认值的倍率**，故 `1.00×` 恒等于原生效果（默认参数的输出与
+引入本功能前**逐字节相同**）。范围唯一定义在 `backend/app/main.py` 的 `GenParams`，
+前端 `lib/types.ts` 的滑块边界必须与之同步。
+
+> **焦距为什么值得单独调**：`sharp.utils.io.load_rgb` 从 EXIF 读 35mm 等效焦距，
+> **读不到就一律按 30mm 处理**。网图、截图、社交平台压缩过的图基本都没有 EXIF，
+> 而这个值同时决定 `disparity_factor`（单目深度→米制换算）与反投影内参。
+> 「自动」档会显示实际用到的值。
+
+### 不可调的部分（已核实）
+
+- **架构参数**（`dims_decoder` / `preset` / `stride` / `num_layers` / `norm_type`）——
+  改了 `load_state_dict` 直接失败。
+- **内部分辨率 1536**——等于 SPN 的 `patch_size*4`（`spn_encoder.py`），而 `split`/`merge`
+  假设方形网格、金字塔最低层必须正好 384 才能喂给 `img_size=384` 的 ViT；且显存峰值已 7 GB。
+- **死参数**：`low_pass_filter_eps`（只被 `utils/gsplat.py` 的渲染器读，本应用未装 gsplat）、
+  `use_predicted_mean`（`create_predictor` 根本没读它）、`initializer.base_depth`
+  （默认 `surface_min` 下不生效）、`AlignmentParams` 全家（推理时 `depth=None`，对齐分支不走）。
+- `initializer.scale_factor` 与「尺寸比例」**数学上等价**（同为 base scale 的线性因子），故不重复暴露。
+
 ## 验证 / 冒烟
 
 ```powershell
@@ -118,7 +166,7 @@ npm run dev --prefix frontend
 desktop.py          桌面入口：pywebview 窗口 + 进程内 uvicorn（日常启动走这里）
 backend/app/        FastAPI 应用：main / sharp_runner(热模型) / db / models / paths
 backend/smoke.py    SHARP 集成冒烟脚本（含显存峰值实测）
-frontend/src/       React 应用：App / components(Uploader/SplatViewer/Gallery) / lib
+frontend/src/       React 应用：App / components(Uploader/ParamPanel/SplatViewer/Gallery) / lib
 scripts/            setup.ps1（环境） · desktop.ps1（桌面） · app.ps1（浏览器） · dev.ps1（开发）
                     profile_predict.py（分段计时） · verify_equivalence.py（等价校验）
                     prune-runtime.ps1（venv 瘦身，默认 dry-run）
