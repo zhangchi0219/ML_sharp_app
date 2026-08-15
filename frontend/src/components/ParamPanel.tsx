@@ -1,3 +1,4 @@
+import { DETAIL_PRESETS, GAIN_CONTROLS, detailPoints, formatPoints } from "../lib/paramMeta";
 import { DEFAULT_PARAMS, FALLBACK_FOCAL35, type GenParams } from "../lib/types";
 
 interface Props {
@@ -7,26 +8,6 @@ interface Props {
   /** 当前图片 EXIF 推出的等效焦距；null = 没有历史记录或老记录。 */
   detectedFocal35: number | null;
 }
-
-type Quality = "light" | "standard" | "fine";
-
-// 质量预设 → 保留比例（density）。原生约 118 万高斯只能裁剪减少，无法增加。
-const PRESET_DENSITY: Record<Quality, number> = { light: 0.25, standard: 0.6, fine: 1 };
-const QUALITY_LABELS: { key: Quality; label: string }[] = [
-  { key: "light", label: "精简" },
-  { key: "standard", label: "标准" },
-  { key: "fine", label: "精细" },
-];
-
-// 高级参数：全部是「相对 SHARP 默认值的倍率」，1.0× 恒等于原生效果。
-// hint 说明的是把滑块推到 0 会发生什么——这是最容易理解的锚点。
-const GAIN_CONTROLS: { key: keyof GenParams; label: string; hint: string }[] = [
-  { key: "colorGain", label: "色彩强度", hint: "0 = 直接用原图颜色，不做网络修正" },
-  { key: "scaleGain", label: "大小变化", hint: "0 = 所有泼溅一样大" },
-  { key: "shapeGain", label: "形状拉伸", hint: "0 = 全是正球，不做各向异性拉伸" },
-  { key: "opacityGain", label: "通透对比", hint: "0 = 两层不透明度均匀" },
-  { key: "depthGain", label: "深度浮雕", hint: "放大逐点深度位移，过高会撕裂画面" },
-];
 
 export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: Props) {
   const set = <K extends keyof GenParams>(key: K, value: GenParams[K]) =>
@@ -41,22 +22,30 @@ export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: 
 
   return (
     <div className="gen-controls">
+      {/* 泼溅数量是在 768×768 的高斯网格上按 k 跨步抽稀，不是按不透明度裁剪——
+          空间均匀、两层等比保留，抽稀后尺度会自动放大 k 倍补上缝隙。 */}
       <div className="control-row">
         <span className="label">泼溅数量</span>
         <div className="segmented" role="group" aria-label="泼溅数量">
-          {QUALITY_LABELS.map(({ key, label }) => (
+          {DETAIL_PRESETS.map(({ detail, label }) => (
             <button
-              key={key}
+              key={detail}
               type="button"
-              className={`seg${params.density === PRESET_DENSITY[key] ? " active" : ""}`}
-              onClick={() => set("density", PRESET_DENSITY[key])}
+              className={`seg${params.detail === detail ? " active" : ""}`}
+              onClick={() => set("detail", detail)}
               disabled={busy}
+              title={`网格 1/${detail}² · ${formatPoints(detailPoints(detail))}个高斯`}
             >
               {label}
             </button>
           ))}
         </div>
       </div>
+      <span className="param-hint label">
+        {formatPoints(detailPoints(params.detail))}个高斯
+        {params.detail === 1 ? "（全量）" : ` · 全量的 1/${params.detail * params.detail}`}
+        {params.detail < 2 && " · 网页查看器仍加载 29.5 万的轻量版"}
+      </span>
 
       <div className="control-row">
         <span className="label">尺寸比例</span>
@@ -127,7 +116,7 @@ export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: 
         <summary className="label">高级 / ADVANCED</summary>
         <div className="advanced-body">
           <p className="param-hint label">
-            以下为模型推理参数，1.00× 即 SHARP 原生效果。
+            以下为模型推理参数，1.00× 即模型原生效果。
           </p>
 
           {GAIN_CONTROLS.map(({ key, label, hint }) => (

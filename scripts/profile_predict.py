@@ -96,7 +96,7 @@ def staged_predict(image_path: Path, out_ply: Path) -> None:
         )
 
     with stage("5. postprocess"):
-        gaussians = sharp_runner._postprocess_gaussians(gaussians)
+        gaussians = sharp_runner._scale_gaussians(gaussians, 1.0)
 
     with stage("6. save_ply 导出"):
         save_ply(gaussians, f_px, (height, width), out_ply)

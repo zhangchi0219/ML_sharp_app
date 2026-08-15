@@ -28,6 +28,8 @@ def init_db() -> None:
 _ADDED_COLUMNS = {
     "params": "TEXT",
     "detected_focal35": "FLOAT",
+    "web_path": "TEXT",
+    "web_points": "INTEGER",
 }
 
 

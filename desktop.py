@@ -31,8 +31,8 @@ from app import paths  # noqa: E402
 
 LOGGER = logging.getLogger("desktop")
 
-TITLE = "SHARP · 照片转高斯泼溅"
-# 首次运行要从 Apple CDN 拉 2.7GB 权重，超时必须给得足够宽。
+TITLE = "单张高斯泼溅"
+# 首次运行要从 CDN 拉 2.7GB 权重，超时必须给得足够宽。
 READY_TIMEOUT_S = 30 * 60
 
 
@@ -146,14 +146,14 @@ def _page(heading: str, body: str, *, spin: bool = False) -> str:
   .dots i:nth-child(2) {{ animation-delay:.15s }} .dots i:nth-child(3) {{ animation-delay:.3s }}
   @keyframes b {{ 0%,80%,100%{{opacity:.2;transform:translateY(0)}} 40%{{opacity:1;transform:translateY(-5px)}} }}
 </style></head><body><div class="wrap">
-  <div class="mark">SHARP</div><h1>{heading}</h1><p>{body}</p>{dots}
+  <div class="mark">单张高斯泼溅</div><h1>{heading}</h1><p>{body}</p>{dots}
 </div></body></html>"""
 
 
 SPLASH = _page(
     "正在启动…",
-    "首次运行需要把 SHARP 模型加载进显存，约 20–30 秒。\n"
-    "如果是第一次使用，还会先从 Apple 下载约 2.7 GB 的模型权重，请耐心等待。",
+    "首次运行需要把模型加载进显存，约 20–30 秒。\n"
+    "如果是第一次使用，还会先下载约 2.7 GB 的模型权重，请耐心等待。",
     spin=True,
 )
 
@@ -174,6 +174,12 @@ def main() -> int:
             f"日志：{log_file}"
         )
         return 1
+
+    # pywebview 默认 ALLOW_DOWNLOADS=False，WebView2 的 DownloadStarting 会被直接
+    # args.Cancel 掉——表现是点「下载 .PLY」毫无反应，无提示也无日志。
+    # 打开后 pywebview 自带的 handler 会弹原生「另存为」对话框
+    # （见 webview/platforms/edgechromium.py::on_download_starting）。
+    webview.settings["ALLOW_DOWNLOADS"] = True
 
     dist = paths.frontend_dist()
     if not (dist / "index.html").exists():

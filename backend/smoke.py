@@ -36,8 +36,9 @@ def main() -> None:
     print(f"[warmup] {time.time() - t:.1f}s  device={sharp_runner.device()}")
 
     out1 = OUT / "teaser.ply"
+    web1 = OUT / "teaser.splat"
     t = time.time()
-    sharp_runner.predict(SAMPLE, out1)
+    result = sharp_runner.predict(SAMPLE, out1, web_output_path=web1)
     dt1 = time.time() - t
     print(f"[predict#1] {dt1:.2f}s -> {out1}  ({out1.stat().st_size / 1e6:.1f} MB)")
 
@@ -45,8 +46,18 @@ def main() -> None:
     assert any(h.startswith("element vertex") for h in hdr), hdr
     for prop in ("f_dc_0", "scale_0", "rot_0", "opacity"):
         assert any(prop in h for h in hdr), f"PLY 缺少属性 {prop}"
-    nverts = next(h for h in hdr if h.startswith("element vertex")).split()[-1]
+    nverts = int(next(h for h in hdr if h.startswith("element vertex")).split()[-1])
+    assert nverts == result.num_points, (nverts, result.num_points)
     print(f"[ply] vertex(高斯)数 = {nverts}")
+
+    # 网页轻量版：定长 32 B/点，文件大小是点数的硬校验（见 _save_splat_fast 的布局说明）。
+    web_size = web1.stat().st_size
+    assert web_size == result.web_points * 32, (web_size, result.web_points)
+    assert result.web_points * 4 == result.num_points, (result.web_points, result.num_points)
+    print(
+        f"[splat] {result.web_points} 高斯 · {web_size / 1e6:.1f} MB "
+        f"（.ply 的 {web_size / out1.stat().st_size:.0%}）"
+    )
 
     t = time.time()
     sharp_runner.predict(SAMPLE, OUT / "teaser2.ply")

@@ -1,7 +1,8 @@
 # ML SHARP App · 照片 → 高斯泼溅
 
 一个本机 Web 应用：上传一张照片，用 **Apple SHARP** 模型在约 1 秒内生成 3D 高斯泼溅（3DGS），
-在浏览器里实时旋转/缩放查看，并可下载 `.ply`。历史生成保存在本地画廊里，
+在浏览器里实时旋转/缩放查看，并可下载 `.ply`。每次生成同时产出一份网页轻量版
+`.splat`（9.4 MB，查看器默认加载），见「精度分级」。历史生成保存在本地画廊里，
 可调参数并对同一张图反复重跑（见「可调参数」）。
 
 > **SHARP** = *Sharp Monocular View Synthesis in Less Than a Second*（Apple，2025-12）。
@@ -19,7 +20,7 @@
 原生窗口 (pywebview / WebView2)  ──同进程──>  FastAPI (随机空闲端口)
   · React + Three.js 前端                        · 常驻 SHARP 模型（热推理）
   · 拖拽上传 / GaussianSplats3D 查看器           · SQLite 历史
-  · 历史画廊                                      · 静态服务 .ply / 缩略图 / 前端产物
+  · 历史画廊                                      · 静态服务 .ply/.splat / 缩略图 / 前端产物
 ```
 
 日常使用是一个桌面应用（`desktop.py`）：窗口与服务在同一个进程里，无控制台、无地址栏。
@@ -31,7 +32,8 @@
   `gsplat`，在 Windows 上需编译 CUDA 扩展）。见 `backend/app/sharp_runner.py`。
 - **前端**（`frontend/`）：Vite + React + TS。查看器用
   [`@mkkellogg/gaussian-splats-3d`](https://github.com/mkkellogg/GaussianSplats3D)
-  直接加载标准 3DGS `.ply`。视觉为 studio house style（Swiss / neo-brutalist）。
+  加载标准 3DGS `.ply` 或轻量的 `.splat`（按扩展名判定格式）。
+  视觉为 studio house style（Swiss / neo-brutalist）。
   字体用 Fontsource 自托管 woff2（规避 Google CDN），中文走系统 Microsoft YaHei。
 
 ## 环境要求
@@ -116,7 +118,7 @@ npm run dev --prefix frontend
 
 | 参数 | 范围 / 默认 | 作用 |
 | --- | --- | --- |
-| 泼溅数量 | 0.25 / 0.6 / 1.0 | 按不透明度 Top-K 裁剪。原生 118 万个只能减少，无法增加 |
+| 泼溅数量 | 1–4，默认 1 | 网格抽样步长 k，保留 1/k² 的泼溅。见「精度分级」 |
 | 尺寸比例 | 0.5–2.0，默认 1.0 | 所有高斯的 3D 尺度整体缩放 |
 
 **推理参数**真正参与前向计算。它们改写的是 `GaussianComposer` 与 `MultiLayerInitializer`
@@ -142,6 +144,59 @@ npm run dev --prefix frontend
 > 而这个值同时决定 `disparity_factor`（单目深度→米制换算）与反投影内参。
 > 「自动」档会显示实际用到的值。
 
+### 精度分级：全精度 .ply + 网页轻量版 .splat
+
+每次生成产出**两份**文件，但**只跑一次推理**——前向占了单张 1.01s 里的 0.87s，
+导出是白送的（见「性能」），所以轻量版从同一份 `Gaussians3D` 二次抽样导出，
+不重复推理，也保证两份内容严格对应。
+
+| 产物 | 格式 | 每点字节 | 默认点数 | 大小 | 用途 |
+| --- | --- | --- | --- | --- | --- |
+| `<id>.ply` | 14 × float32 | 56 B | 1,179,648 | 66.1 MB | 下载、离线查看、「全精度」开关 |
+| `<id>.splat` | 定长二进制 | 32 B | 294,912 | 9.4 MB | **查看器默认加载**，秒开 |
+
+查看器默认吃轻量版；右上角「全精度」可切到 `.ply`（切换会整个重建查看器）。
+早于本功能的历史记录没有 `.splat`，会自动退回 `.ply`，「全精度」按钮隐藏。
+
+**减点的方式是网格抽稀，不是按不透明度裁剪。** SHARP 的高斯不是自由点云，而是严格的
+规则网格：`MultiLayerInitializer` 在 1536² 内部分辨率上以 `stride=2` 铺 `num_layers=2` 层，
+共 2 × 768 × 768 = 1,179,648 个；`GaussianComposer.forward` 的展平顺序是
+`permute(0,2,3,4,1).flatten(1,3)`，即 layer→row→col，reshape 回 `[1, L, S, S, ...]`
+后按行列跨步切片，拿到的就是空间均匀的降采样（`sharp_runner._grid_subsample`）。
+
+比 Top-K 好在两点：
+
+- **空间均匀。** Top-K 会整体偏向表面层，而第二层是补洞层、基础不透明度只有
+  `1/num_layers`，大比例裁剪时会被整片削掉，一转视角就露背景。
+- **可补偿。** 抽稀后相邻高斯的间距随 k 线性变大，基准尺度本身也正比于 `stride`
+  （`initializer._create_base_scale` 的 `disparity_scale_factor`），
+  所以 `singular_values` 会一并乘 k，不然画面会出现网格状的缝。Top-K 做不到这种补偿。
+
+| 档位 | k | 点数 | 相对全量 | .ply | .splat |
+| --- | --- | --- | --- | --- | --- |
+| 精细 | 1 | 1,179,648 | 100% | 66.1 MB | — |
+| 标准 | 2 | 294,912 | 1/4 | 16.5 MB | 9.4 MB |
+| 精简 | 3 | 131,072 | 1/9 | 7.3 MB | 4.2 MB |
+| 极简 | 4 | 73,728 | 1/16 | 4.1 MB | 2.4 MB |
+
+轻量版固定用 `max(k, 2)`：主文件已经比 29.5 万更稀时不再二次抽样，两份内容相同、
+只是格式不同（`sharp_runner._WEB_GRID_STEP`）。
+
+`.splat` 是 antimatter15 的定长格式，查看器（`@mkkellogg/gaussian-splats-3d`）原生支持，
+Python 直接写、不需要任何 JS 工具链。字段布局（`_save_splat_fast`）：
+
+```text
+偏移  0–11   center    float32 × 3
+偏移 12–23   scale     float32 × 3   ← 线性尺度，不是 .ply 里的 log
+偏移 24–27   color     uint8   × 4   ← RGBA，不是 .ply 里的 SH 系数
+偏移 28–31   rotation  uint8   × 4   ← (w,x,y,z)，编码为 q*128+128
+```
+
+位置与尺度仍是全精度 float32，被量化到 8 bit 的只有颜色、透明度与旋转——
+这是该格式的固有取舍，所有 `.splat` 文件都一样。与同一次生成的 `.ply` 对拍
+（teaser.jpg，29.5 万点）：位置**逐位相同**、尺度最大相对误差 6.7e-7、
+颜色与不透明度最大差 0.5/255（纯 8bit 舍入）、四元数最大差 4.6e-3（同号，即字段顺序正确）。
+
 ### 不可调的部分（已核实）
 
 - **架构参数**（`dims_decoder` / `preset` / `stride` / `num_layers` / `norm_type`）——
@@ -156,7 +211,7 @@ npm run dev --prefix frontend
 ## 验证 / 冒烟
 
 ```powershell
-# 端到端验证 SHARP 集成：加载模型 + 对样图生成 .ply + 校验输出
+# 端到端验证 SHARP 集成：加载模型 + 对样图生成 .ply/.splat + 校验两者的点数与大小
 .\.venv\Scripts\python.exe backend\smoke.py
 ```
 
@@ -185,6 +240,9 @@ RTX 5080、1536×1536 内部分辨率、1,179,648 个高斯、GPU 空闲时实�
 | unproject（协方差分解） | 0.082s | 8.1% |
 | 导出 .ply（66 MB） | 0.049s | 4.9% |
 | **合计** | **1.01s** | |
+
+网页轻量版几乎不要钱：网格抽稀 0.3ms + 导出 `.splat` 12.9ms ≈ **13ms**
+（同机 5 次取中位数），换来查看器少下 57 MB。所以两份产物无条件都出，不做成开关。
 
 上游 `ml-sharp` 的导出路径原本要 **5.29s**，其中 4.2s 耗在三处与模型无关的 CPU 瓶颈上。
 `backend/app/sharp_runner.py` 在 import 阶段把它们替换掉（不修改 `third_party`）：

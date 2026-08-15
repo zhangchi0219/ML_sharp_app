@@ -17,6 +17,9 @@
 
 替换方式是在 import 阶段改写 sharp.utils.gaussians 的模块属性，
 不修改 third_party —— 它是 gitignore 掉的 git clone，改了会在重新 clone 时丢失。
+
+精度分级：一次推理导出两份——主文件 .ply（全精度，可下载）与网页轻量版 .splat
+（网格抽稀 + 32 B/点的定长格式，约 9 MB）。见 _grid_subsample 与 _save_splat_fast。
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import math
 import sys
 import threading
 from pathlib import Path
+from typing import NamedTuple
 
 from . import paths
 
@@ -277,6 +281,53 @@ def _save_ply_fast(
     return plydata
 
 
+def _save_splat_fast(gaussians: Gaussians3D, path: Path) -> int:
+    """导出 .splat（antimatter15 定长格式），返回点数。网页端加载用。
+
+    .ply 每点 14 个 float32 = 56 B；.splat 每点固定 32 B，几乎腰斩，且查看器
+    （@mkkellogg/gaussian-splats-3d 的 SplatParser）不必解析 ASCII 头。字段布局：
+
+        偏移  0–11   center    float32 × 3
+        偏移 12–23   scale     float32 × 3   ← 线性尺度，不是 .ply 里的 log
+        偏移 24–27   color     uint8   × 4   ← RGBA，不是 .ply 里的 SH 系数
+        偏移 28–31   rotation  uint8   × 4   ← (w,x,y,z)，编码为 q*128+128
+
+    位置与尺度仍是全精度 float32；被量化到 8 bit 的只有颜色、透明度与旋转——
+    这是该格式的固有取舍，所有 .splat 文件都一样。
+    """
+    xyz = gaussians.mean_vectors.flatten(0, 1)
+    scales = gaussians.singular_values.flatten(0, 1)
+    # 与 _save_ply_fast 一致：导出时把 linearRGB 转成 sRGB，以兼容公共查看器。
+    rgb = cs_utils.linearRGB2sRGB(gaussians.colors.flatten(0, 1))
+    alpha = gaussians.opacities.flatten(0, 1).unsqueeze(-1)
+
+    quaternions = gaussians.quaternions.flatten(0, 1)
+    # 上游解析器会对读出的四元数再做一次 normalize，但先归一化才能保证 q*128+128
+    # 落在 uint8 的表示范围内；这里的输入本就是单位四元数，仅作兜底。
+    quaternions = quaternions / quaternions.norm(dim=-1, keepdim=True).clamp_min(1e-20)
+
+    color_u8 = (torch.cat((rgb, alpha), dim=1).clamp(0, 1) * 255).round().to(torch.uint8)
+    # q = ±1 会算出 0 / 256，256 溢出 uint8，故夹到 255 再转换（上游用 Uint8ClampedArray
+    # 写入，行为相同）。
+    rot_u8 = (quaternions * 128 + 128).round().clamp(0, 255).to(torch.uint8)
+
+    record = np.dtype(
+        [("center", "<f4", (3,)), ("scale", "<f4", (3,)), ("color", "u1", (4,)), ("rot", "u1", (4,))]
+    )
+    assert record.itemsize == 32, record.itemsize
+
+    num_gaussians = len(xyz)
+    out = np.empty(num_gaussians, dtype=record)
+    out["center"] = xyz.detach().cpu().numpy()
+    out["scale"] = scales.detach().cpu().numpy()
+    out["color"] = color_u8.cpu().numpy()
+    out["rot"] = rot_u8.cpu().numpy()
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.tofile(path)
+    return num_gaussians
+
+
 # apply_transform 按模块全局名调用 decompose_covariance_matrices，改写模块属性即可生效，
 # 不必复刻 apply_transform / unproject_gaussians 本身。
 # 保留上游实现的引用，等价性验证脚本要拿它跟新实现对拍。
@@ -444,55 +495,103 @@ def _composed_with(gains: dict[str, float], max_scale: float):
         composer.max_scale = original_max_scale
 
 
-def _postprocess_gaussians(
-    gaussians: Gaussians3D, *, scale_mul: float = 1.0, keep_ratio: float = 1.0
-) -> Gaussians3D:
-    """导出前后处理：整体缩放尺寸 + 按不透明度裁剪数量。
+def _scale_gaussians(gaussians: Gaussians3D, scale_mul: float) -> Gaussians3D:
+    """对每个高斯的 3D 尺度（singular_values）乘一个全局系数。
 
-    - scale_mul：对每个高斯的 3D 尺度（singular_values）乘一个全局系数；
-      save_ply 存 log(singular_values)，乘法即对数空间平移，安全无副作用。
-    - keep_ratio：沿粒子维按不透明度做 Top-K 子选，优先保留最可见的高斯。
-      原生数量由训练好的架构固定，只能减少（<1.0），无法增加。
+    save_ply 存的是 log(singular_values)，乘法即对数空间平移，安全无副作用。
     """
-    # 尺寸：整体缩放。
-    if abs(scale_mul - 1.0) > 1e-6:
-        gaussians = gaussians._replace(singular_values=gaussians.singular_values * scale_mul)
+    if abs(scale_mul - 1.0) <= 1e-6:
+        return gaussians
+    return gaussians._replace(singular_values=gaussians.singular_values * scale_mul)
 
-    # 数量：按不透明度裁剪到 keep_ratio。opacities 形状为 [1, N]。
-    if keep_ratio < 1.0:
-        opacities = gaussians.opacities
-        num = opacities.shape[1]
-        k = max(1, int(num * keep_ratio))
-        if k < num:
-            idx = torch.topk(opacities[0].reshape(-1), k).indices
-            idx, _ = torch.sort(idx)  # 保持原有空间顺序
-            gaussians = Gaussians3D(
-                mean_vectors=gaussians.mean_vectors[:, idx],
-                singular_values=gaussians.singular_values[:, idx],
-                quaternions=gaussians.quaternions[:, idx],
-                colors=gaussians.colors[:, idx],
-                opacities=gaussians.opacities[:, idx],
-            )
-    return gaussians
+
+# 网页轻量版的抽样步长。294,912 点 × 32 B ≈ 9.0 MB，是「肉眼几乎无损」与「能在网页
+# 里秒开」的交点。主文件已经比它更稀时不再二次抽样（见 predict 里的 max）。
+_WEB_GRID_STEP = 2
+
+
+def _grid_shape() -> tuple[int, int]:
+    """当前模型的高斯网格形状 (层数, 边长)。必须在 warmup 之后调用。"""
+    assert _predictor is not None
+    initializer = _predictor.init_model
+    return initializer.num_layers, _INTERNAL_SHAPE[0] // initializer.stride
+
+
+def _grid_subsample(gaussians: Gaussians3D, step: int) -> Gaussians3D:
+    """按网格跨步抽稀，保留 1/step² 的高斯，并把尺度放大 step 倍补偿覆盖。
+
+    SHARP 的高斯不是自由点云，而是严格的规则网格：MultiLayerInitializer 在 1536² 的
+    内部分辨率上以 stride=2 铺 num_layers=2 层，共 2 × 768 × 768 = 1,179,648 个。
+    GaussianComposer.forward 的展平顺序是 `permute(0,2,3,4,1).flatten(1,3)`，即
+    layer→row→col，所以 reshape 回 [1, L, S, S, ...] 后按行列跨步切片，
+    拿到的就是空间上均匀的降采样，两层都等比保留。
+
+    这比「按不透明度 Top-K」更适合做 LOD：Top-K 会整体偏向表面层，而第二层是补洞层、
+    基础不透明度只有 1/num_layers，大比例裁剪时会被整片削掉，一转视角就露背景。
+
+    尺度补偿是必须的：相邻高斯的间距随 step 线性变大，基准尺度本身也正比于 stride
+    （`initializer._create_base_scale` 里的 `disparity_scale_factor`），
+    不把 singular_values 一并乘 step，抽稀后的画面会出现网格状的缝。
+    """
+    if step <= 1:
+        return gaussians
+
+    layers, side = _grid_shape()
+    num = gaussians.opacities.shape[1]
+    if num != layers * side * side:
+        # 架构参数被改动过（README 记为不可调）。宁可不抽稀也不要按错误的形状 reshape。
+        LOGGER.warning("高斯数 %d 与网格 %d×%d×%d 不符，跳过降采样", num, layers, side, side)
+        return gaussians
+
+    def _take(tensor: torch.Tensor) -> torch.Tensor:
+        # opacities 是 [1, N]，其余是 [1, N, C]；用尾部维度统一处理。
+        channels = tensor.shape[2:]
+        grid = tensor.reshape(1, layers, side, side, *channels)
+        return grid[:, :, ::step, ::step].reshape(1, -1, *channels)
+
+    return Gaussians3D(
+        mean_vectors=_take(gaussians.mean_vectors),
+        singular_values=_take(gaussians.singular_values) * step,
+        quaternions=_take(gaussians.quaternions),
+        colors=_take(gaussians.colors),
+        opacities=_take(gaussians.opacities),
+    )
+
+
+class PredictResult(NamedTuple):
+    """一次生成的产出摘要。"""
+
+    detected_focal35: float
+    """图片 EXIF 推出的 35mm 等效焦距（与实际使用的焦距无关）。"""
+    num_points: int
+    """主文件（.ply）的高斯数。"""
+    web_points: int | None
+    """轻量文件（.splat）的高斯数；未导出时为 None。"""
 
 
 def predict(
     image_path: str | Path,
     output_ply_path: str | Path,
     *,
+    web_output_path: str | Path | None = None,
     scale_mul: float = 1.0,
-    keep_ratio: float = 1.0,
+    detail: int = 1,
     focal35: float | None = None,
     gains: dict[str, float] | None = None,
     max_scale: float = _DEFAULT_MAX_SCALE,
-) -> float:
-    """从一张图片生成 3DGS .ply，返回图片自带（EXIF 推出）的 35mm 等效焦距。
+) -> PredictResult:
+    """从一张图片生成 3DGS，写出主文件 .ply 与（可选）网页轻量版 .splat。
 
-    线程安全（单 GPU 串行）。全部参数取默认值时，输出与未引入参数功能前逐字节一致。
+    线程安全（单 GPU 串行）。全部参数取默认值时，.ply 与未引入参数功能前逐字节一致。
+
+    **两份产物只跑一次推理。** 前向占了单张 1.01s 里的 0.87s，导出是白送的
+    （见 README「性能」），所以轻量版从同一份 Gaussians3D 二次抽样导出，
+    不重复推理，也保证两份内容严格对应。
 
     导出后处理：
         scale_mul：泼溅尺寸整体比例（1.0=原始）。
-        keep_ratio：保留的泼溅比例（1.0=全部，<1.0 按不透明度裁剪）。
+        detail：主文件的网格抽样步长 k，保留 1/k² 的泼溅（1=全量 118 万）。
+            轻量版用 max(detail, _WEB_GRID_STEP)——主文件已经更稀时不再二次抽样。
     推理参数：
         focal35：35mm 等效焦距(mm)。None=沿用图片 EXIF（无 EXIF 时上游按 30mm 兜底）。
             它同时决定 disparity_factor（单目深度→米制）与反投影内参，是影响纵深最大的单一变量。
@@ -503,6 +602,8 @@ def predict(
         raise RuntimeError("SHARP 模型尚未加载，请先调用 warmup()。")
     if max_scale <= 1.0:
         raise ValueError(f"max_scale 必须 > 1（收到 {max_scale}）")
+    if detail < 1:
+        raise ValueError(f"detail 必须 ≥ 1（收到 {detail}）")
     image_path = Path(image_path)
     output_ply_path = Path(output_ply_path)
     output_ply_path.parent.mkdir(parents=True, exist_ok=True)
@@ -516,6 +617,20 @@ def predict(
 
         with _composed_with(gains or {}, max_scale):
             gaussians = _predict_image(image, f_px)
-        gaussians = _postprocess_gaussians(gaussians, scale_mul=scale_mul, keep_ratio=keep_ratio)
-        _save_ply_fast(gaussians, f_px, (height, width), output_ply_path)
-    return detected_focal35
+        gaussians = _scale_gaussians(gaussians, scale_mul)
+
+        full = _grid_subsample(gaussians, detail)
+        _save_ply_fast(full, f_px, (height, width), output_ply_path)
+
+        web_points = None
+        if web_output_path is not None:
+            web_step = max(detail, _WEB_GRID_STEP)
+            # 抽样一律从完整网格出发：full 可能已被抽稀，网格形状不再成立。
+            web = full if web_step == detail else _grid_subsample(gaussians, web_step)
+            web_points = _save_splat_fast(web, Path(web_output_path))
+
+    return PredictResult(
+        detected_focal35=detected_focal35,
+        num_points=full.opacities.shape[1],
+        web_points=web_points,
+    )

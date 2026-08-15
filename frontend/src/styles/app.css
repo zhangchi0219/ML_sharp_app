@@ -17,7 +17,8 @@
   border-right: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   overflow-y: auto;
 }
-.brand-mark { font: 800 clamp(2.2rem, 4.5vw, 3rem)/0.9 var(--font-display); letter-spacing: -0.02em; }
+/* 尺寸按 6 个汉字定：原本 3rem 是给 5 个拉丁字母的，中文标题会撑破 30% 宽的侧栏。 */
+.brand-mark { font: 800 clamp(1.5rem, 2.4vw, 2rem)/1.1 var(--font-display); letter-spacing: -0.01em; }
 .brand-sub { margin-top: var(--s2); }
 .hero {
   margin: 0;
@@ -147,6 +148,8 @@
 }
 .regen-btn:hover:not(:disabled) { color: var(--hot); }
 .regen-btn:disabled { opacity: .45; cursor: default; }
+/* 「全精度」是个开关，选中态要一眼可见——它决定查看器在下几十 MB 还是几 MB。 */
+.regen-btn.active { color: var(--hot); }
 
 /* 舞台 / 查看器 */
 .stage {
@@ -176,12 +179,27 @@
   pointer-events: none; user-select: none;
 }
 
+/* 选中记录的只读参数卡 */
+.param-summary { flex-shrink: 0; min-width: 0; }
+.param-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s2) var(--s4);
+  padding: var(--s3) 0 0;
+}
+.param-cell { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s2); }
+.param-cell .label { color: var(--ink-muted); }
+/* 偏离默认的项——同图重跑出来的记录缩略图完全一样，全靠这抹强调色区分。 */
+.param-cell .changed { color: var(--hot); }
+.param-grid-empty { padding: var(--s3) 0 0; text-transform: none; opacity: .6; }
+
 /* 历史画廊 */
 .gallery-section { flex-shrink: 0; min-width: 0; }
 .gallery { display: flex; gap: var(--s3); overflow-x: auto; padding: var(--s3) 0 var(--s2); }
 .gallery-empty { padding: var(--s4) 0; text-transform: none; }
+/* 删除键要脱离 .thumb 的 overflow:hidden 定位，故多包一层。 */
+.thumb-wrap { position: relative; flex: 0 0 auto; }
 .thumb {
-  position: relative; flex: 0 0 auto; width: 112px; height: 112px;
+  position: relative; display: block; width: 112px; height: 112px;
   border: 0; padding: 0; border-radius: var(--radius); overflow: hidden;
   cursor: pointer; background: var(--m-sand);
   outline: 2px solid transparent;
@@ -195,6 +213,25 @@
   background: color-mix(in srgb, var(--ink) 72%, transparent);
   color: var(--on-hot); padding: 2px 6px; border-radius: var(--radius-pill);
   font-size: 0.625rem;
+}
+.thumb-del {
+  position: absolute; right: 4px; top: 4px;
+  width: 20px; height: 20px; border: 0; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--ink) 72%, transparent);
+  color: var(--on-hot); font: 500 0.875rem/1 var(--font-mono);
+  cursor: pointer;
+  /* 光标不在这张卡上时必须连点击也一起关掉：opacity:0 的元素照样能被点中，
+     否则误点缩略图右上角就直接触发删除，而删除是不可撤销的。 */
+  opacity: 0; pointer-events: none;
+  transition: opacity .15s ease, background .15s ease;
+}
+.thumb-wrap:hover .thumb-del,
+.thumb-del:focus-visible { opacity: 1; pointer-events: auto; }
+.thumb-del:hover { background: var(--hot); }
+/* 触屏没有 hover，藏起来就等于没有这个功能。 */
+@media (hover: none) {
+  .thumb-del { opacity: 1; pointer-events: auto; }
 }
 
 @media (max-width: 980px) {

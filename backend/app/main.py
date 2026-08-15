@@ -5,6 +5,7 @@ from __future__ import annotations
 import io as _io
 import json
 import logging
+import mimetypes
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +33,10 @@ THUMB_DIR = paths.thumbs_dir()
 ALLOWED_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
 MAX_BYTES = 40 * 1024 * 1024  # 40MB
 
+# .splat 不在系统 mime 表里，StaticFiles 猜不出来就会发 text/plain——查看器读 arrayBuffer
+# 不受影响，但中间的代理有可能按文本处理。显式登记成二进制。
+mimetypes.add_type("application/octet-stream", ".splat")
+
 
 class GenParams(BaseModel):
     """一次生成的全部可调参数。范围在此唯一定义——前端 lib/types.ts 的滑块要与之同步。
@@ -45,7 +50,9 @@ class GenParams(BaseModel):
 
     # 导出后处理。
     scale: float = Field(1.0, ge=0.5, le=2.0, description="泼溅尺寸整体比例")
-    density: float = Field(1.0, gt=0.0, le=1.0, description="按不透明度保留的泼溅比例")
+    # 网格抽样步长：保留 1/detail² 的泼溅。整数——抽样是在 768×768 的高斯网格上按行列
+    # 跨步做的，只有整数步长才能保持空间均匀（见 sharp_runner._grid_subsample）。
+    detail: int = Field(1, ge=1, le=4, description="网格抽样步长，保留 1/k² 的泼溅")
     # 推理参数。
     focal35: float | None = Field(None, ge=14.0, le=85.0, description="35mm 等效焦距；None=跟随 EXIF")
     colorGain: float = Field(1.0, ge=0.0, le=3.0, description="色彩修正强度倍率")
@@ -60,7 +67,7 @@ class GenParams(BaseModel):
         """映射到 sharp_runner.predict 的关键字参数。"""
         return {
             "scale_mul": self.scale,
-            "keep_ratio": self.density,
+            "detail": self.detail,
             "focal35": self.focal35,
             "max_scale": self.maxScale,
             "gains": {
@@ -99,7 +106,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="SHARP 高斯泼溅", lifespan=lifespan)
+app = FastAPI(title="单张高斯泼溅", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -117,8 +124,11 @@ def _to_dict(g: Generation) -> dict:
         "id": g.id,
         "originalFilename": g.original_filename,
         "plyUrl": f"/files/gaussians/{Path(g.ply_path).name}",
+        # 网页轻量版；早于本功能的记录为 null，前端退回 plyUrl。
+        "webUrl": f"/files/gaussians/{Path(g.web_path).name}" if g.web_path else None,
         "thumbUrl": f"/files/thumbs/{Path(g.thumb_path).name}",
         "numPoints": g.num_points,
+        "webPoints": g.web_points,
         "elapsedMs": g.elapsed_ms,
         "status": g.status,
         "createdAt": g.created_at.isoformat(),
@@ -126,21 +136,6 @@ def _to_dict(g: Generation) -> dict:
         "params": json.loads(g.params) if g.params else None,
         "detectedFocal35": g.detected_focal35,
     }
-
-
-def _count_ply_vertices(ply_path: Path) -> int | None:
-    """从 PLY 头部读取 vertex 数量（不加载全部数据）。"""
-    try:
-        with open(ply_path, "rb") as f:
-            for raw in f:
-                line = raw.decode("ascii", "replace").strip()
-                if line == "end_header":
-                    break
-                if line.startswith("element vertex"):
-                    return int(line.split()[-1])
-    except Exception:  # noqa: BLE001
-        return None
-    return None
 
 
 @app.get("/api/health")
@@ -163,6 +158,52 @@ def history() -> list[dict]:
         return [_to_dict(r) for r in rows]
 
 
+def _safe_unlink(path: Path) -> None:
+    """删文件，失败只记日志不抛。
+
+    Windows 上 StaticFiles 可能正握着一个下载到一半的 .ply；删不掉最多留个孤儿文件，
+    不该让整个删除请求失败——数据库那行已经删了，用户看到的结果是对的。
+    """
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:  # noqa: PERF203
+        LOGGER.warning("删除文件失败 %s: %s", path, exc)
+
+
+@app.delete("/api/history/{gen_id}")
+def delete_generation(gen_id: str) -> dict:
+    """删除一条记录及其产出文件。
+
+    ⚠️ regenerate 刻意让多条记录**共用**同一份源图与缩略图（见 _run_generation 的说明），
+    只有 .ply 是一对一的。所以源图/缩略图必须先确认没有兄弟记录还在引用才能删，
+    否则同图重跑的另一条记录会在画廊里变成裂图。
+    """
+    with db.get_session() as session:
+        row = session.get(Generation, gen_id)
+        if row is None:
+            raise HTTPException(404, "找不到该生成记录")
+        image_name, thumb_name, ply_name = row.image_path, row.thumb_path, row.ply_path
+        web_name = row.web_path
+        session.delete(row)
+        session.commit()
+        # 行已删掉，此刻还引用同一张源图的就是兄弟记录。
+        # image_path 与 thumb_path 在 _run_generation 里总是成对复用，判一次即可覆盖两者。
+        still_used = (
+            session.exec(select(Generation).where(Generation.image_path == image_name)).first()
+            is not None
+        )
+
+    # 一律取 .name：路径来自库里，但与 _to_dict 保持同一道防穿越姿势。
+    # .ply 与 .splat 都是一对一的，跟着记录一起删。
+    _safe_unlink(GAUSS_DIR / Path(ply_name).name)
+    if web_name:
+        _safe_unlink(GAUSS_DIR / Path(web_name).name)
+    if not still_used:
+        _safe_unlink(UPLOAD_DIR / Path(image_name).name)
+        _safe_unlink(THUMB_DIR / Path(thumb_name).name)
+    return {"deleted": gen_id}
+
+
 def _run_generation(
     *,
     gen_id: str,
@@ -180,10 +221,14 @@ def _run_generation(
         raise HTTPException(503, f"SHARP 模型未就绪：{_warmup_error or '正在加载，请稍候'}")
 
     ply_path = GAUSS_DIR / f"{gen_id}.ply"
+    web_path = GAUSS_DIR / f"{gen_id}.splat"
     t0 = time.time()
     try:
-        detected_focal35 = sharp_runner.predict(
-            UPLOAD_DIR / image_name, ply_path, **params.to_runner_kwargs()
+        result = sharp_runner.predict(
+            UPLOAD_DIR / image_name,
+            ply_path,
+            web_output_path=web_path,
+            **params.to_runner_kwargs(),
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("生成失败")
@@ -196,11 +241,13 @@ def _run_generation(
         image_path=image_name,
         ply_path=ply_path.name,
         thumb_path=thumb_name,
-        num_points=_count_ply_vertices(ply_path),
+        num_points=result.num_points,
         elapsed_ms=elapsed_ms,
         status="done",
         params=params.model_dump_json(),
-        detected_focal35=detected_focal35,
+        detected_focal35=result.detected_focal35,
+        web_path=web_path.name,
+        web_points=result.web_points,
     )
     with db.get_session() as session:
         session.add(record)

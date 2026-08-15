@@ -9,10 +9,11 @@ const GS: any = GaussianSplats3D;
 const MOVE_SPEED = 0.8;
 
 interface Props {
-  plyUrl: string;
+  /** .ply（全精度）或 .splat（网页轻量版）。格式按扩展名判定。 */
+  url: string;
 }
 
-export default function SplatViewer({ plyUrl }: Props) {
+export default function SplatViewer({ url }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
@@ -49,8 +50,9 @@ export default function SplatViewer({ plyUrl }: Props) {
     });
 
     viewer
-      .addSplatScene(plyUrl, {
-        format: GS.SceneFormat.Ply,
+      .addSplatScene(url, {
+        // 库自己也能按扩展名猜，但显式给出更稳：静态目录里两种格式并存。
+        format: url.endsWith(".splat") ? GS.SceneFormat.Splat : GS.SceneFormat.Ply,
         showLoadingUI: false,
         progressiveLoad: false,
         onProgress: (pct: number) => setProgress(pct ?? 0),
@@ -130,7 +132,7 @@ export default function SplatViewer({ plyUrl }: Props) {
         /* 同步抛出的卸载竞态，同样忽略 */
       }
     };
-  }, [plyUrl]);
+  }, [url]);
 
   return (
     <div className="viewer-wrap">

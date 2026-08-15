@@ -15,7 +15,7 @@ class Generation(SQLModel, table=True):
     id: str = Field(primary_key=True)
     original_filename: str
     image_path: str  # data/uploads/ 下的文件名
-    ply_path: str  # data/gaussians/ 下的文件名
+    ply_path: str  # data/gaussians/ 下的文件名（全精度，供下载）
     thumb_path: str  # data/thumbs/ 下的文件名
     num_points: int | None = None
     elapsed_ms: int | None = None
@@ -25,3 +25,7 @@ class Generation(SQLModel, table=True):
     params: str | None = None
     # 图片 EXIF 推出的 35mm 等效焦距；UI 的「自动」档显示它。
     detected_focal35: float | None = None
+    # 网页轻量版 .splat（data/gaussians/ 下的文件名）与它的高斯数。
+    # 查看器默认加载它；早于本功能的记录为 None，前端退回 ply_path。
+    web_path: str | None = None
+    web_points: int | None = None

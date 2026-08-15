@@ -12,9 +12,15 @@ export async function getHistory(): Promise<Generation[]> {
   return r.json();
 }
 
+/** 删除一条记录：后端同时清掉 .ply，以及不再被其他记录引用的源图与缩略图。 */
+export async function deleteGeneration(id: string): Promise<void> {
+  const r = await fetch(`/api/history/${id}`, { method: "DELETE" });
+  if (!r.ok) await readError(r, "删除");
+}
+
 /** 从响应里取出后端给的中文错误说明（FastAPI 放在 detail 里）。 */
-async function readError(r: Response): Promise<never> {
-  let msg = `生成失败 (${r.status})`;
+async function readError(r: Response, what = "生成"): Promise<never> {
+  let msg = `${what}失败 (${r.status})`;
   try {
     const j = await r.json();
     if (j?.detail) msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
