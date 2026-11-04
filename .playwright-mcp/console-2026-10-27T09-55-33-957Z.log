@@ -1,0 +1,80 @@
+
+[    3956ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:21550
+[   19893ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:21550
+[   19911ms] TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at paramRows (http://127.0.0.1:5177/src/lib/paramMeta.ts:54:33)
+    at ParamSummary (http://127.0.0.1:5177/src/components/ParamSummary.tsx:30:30)
+    at renderWithHooks (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:11548:26)
+    at mountIndeterminateComponent (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14926:21)
+    at beginWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3674:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3699:24)
+    at invokeGuardedCallback (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3733:39)
+    at beginWork$1 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19765:15)
+    at performUnitOfWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19198:20)
+[   19920ms] TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at paramRows (http://127.0.0.1:5177/src/lib/paramMeta.ts:54:33)
+    at summaryLine (http://127.0.0.1:5177/src/lib/paramMeta.ts:68:21)
+    at http://127.0.0.1:5177/src/components/Gallery.tsx:36:20
+    at Array.map (<anonymous>)
+    at Gallery (http://127.0.0.1:5177/src/components/Gallery.tsx:26:80)
+    at renderWithHooks (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:11548:26)
+    at updateFunctionComponent (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14582:28)
+    at beginWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3674:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3699:24)
+[   19923ms] TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at paramRows (http://127.0.0.1:5177/src/lib/paramMeta.ts:54:33)
+    at ParamSummary (http://127.0.0.1:5177/src/components/ParamSummary.tsx:30:30)
+    at renderWithHooks (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:11548:26)
+    at mountIndeterminateComponent (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14926:21)
+    at beginWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:15914:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3674:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3699:24)
+    at invokeGuardedCallback (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3733:39)
+    at beginWork$1 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19765:15)
+    at performUnitOfWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19198:20)
+[   19923ms] TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at paramRows (http://127.0.0.1:5177/src/lib/paramMeta.ts:54:33)
+    at summaryLine (http://127.0.0.1:5177/src/lib/paramMeta.ts:68:21)
+    at http://127.0.0.1:5177/src/components/Gallery.tsx:36:20
+    at Array.map (<anonymous>)
+    at Gallery (http://127.0.0.1:5177/src/components/Gallery.tsx:26:80)
+    at renderWithHooks (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:11548:26)
+    at updateFunctionComponent (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14582:28)
+    at beginWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:15924:22)
+    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3674:22)
+    at Object.invokeGuardedCallbackDev (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:3699:24)
+[   19924ms] [ERROR] The above error occurred in the <ParamSummary> component:
+
+    at ParamSummary (http://127.0.0.1:5177/src/components/ParamSummary.tsx:29:40)
+    at main
+    at div
+    at App (http://127.0.0.1:5177/src/App.tsx:37:31)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14031
+[   19924ms] [ERROR] The above error occurred in the <Gallery> component:
+
+    at Gallery (http://127.0.0.1:5177/src/components/Gallery.tsx:18:35)
+    at section
+    at main
+    at div
+    at App (http://127.0.0.1:5177/src/App.tsx:37:31)
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14031
+[   19924ms] TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at paramRows (http://127.0.0.1:5177/src/lib/paramMeta.ts:54:33)
+    at ParamSummary (http://127.0.0.1:5177/src/components/ParamSummary.tsx:30:30)
+    at renderWithHooks (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:11548:26)
+    at mountIndeterminateComponent (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:14926:21)
+    at beginWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:15914:22)
+    at beginWork$1 (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19753:22)
+    at performUnitOfWork (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19198:20)
+    at workLoopSync (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19137:13)
+    at renderRootSync (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:19116:15)
+    at recoverFromConcurrentError (http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:18736:28)
+[   45847ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:21550
+[   45884ms] [ERROR] Failed to load resource: the server responded with a status of 503 (Service Unavailable) @ http://127.0.0.1:5177/api/health:0
+[   83948ms] [INFO] %cDownload the React DevTools for a better development experience: https://reactjs.org/link/react-devtools font-weight:bold @ http://127.0.0.1:5177/node_modules/.vite/deps/chunk-36CNJZTX.js?v=130b75df:21550

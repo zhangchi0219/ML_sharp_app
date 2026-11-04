@@ -1,0 +1,68 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]:
+      - heading "SHARP 单张成景" [level=1] [ref=e6]:
+        - text: SHARP
+        - generic [ref=e7]: 单张成景
+      - generic [aria-hidden] [ref=e8]: ✳
+    - paragraph [ref=e9]: 照片 → 3D 高斯泼溅
+  - region "上传照片" [ref=e10]:
+    - generic [ref=e11]:
+      - generic [ref=e12]: 源图
+      - generic [ref=e13]: 最大 40 MB
+    - generic [ref=e14]:
+      - button "拖入照片 / 点击选择 JPG · PNG · WEBP · HEIC" [disabled] [ref=e15]:
+        - generic [ref=e16]: 拖入照片 / 点击选择
+        - generic [ref=e17]: JPG · PNG · WEBP · HEIC
+      - button "上传并生成" [disabled] [ref=e18]
+  - region "历史记录" [ref=e19]:
+    - generic [ref=e20]:
+      - heading "历史记录" [level=2] [ref=e21]
+      - generic [ref=e22]: "00"
+    - generic [ref=e23]: 暂无历史 · 上传照片后出现在此
+  - complementary "设备状态" [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e26]: 设备
+      - generic [ref=e27]: 等待连接
+    - generic [ref=e28]:
+      - generic [ref=e29]: 模型
+      - status [ref=e30]: 连接中
+  - main [ref=e31]:
+    - generic [ref=e33]:
+      - text: 3D 预览
+      - heading "等待源图" [level=2] [ref=e34]
+    - generic [ref=e36]:
+      - generic [aria-hidden] [ref=e37]: ✳
+      - generic [ref=e38]: 从一张照片开始
+      - paragraph [ref=e39]: 上传照片，探索画面中的空间。
+    - generic [ref=e40]:
+      - generic [ref=e41]: 预览工作区
+      - generic [ref=e42]: SHARP
+  - complementary "生成参数" [ref=e43]:
+    - generic [ref=e44]:
+      - heading "生成参数" [level=2] [ref=e45]
+      - generic [ref=e46]: PARAMETERS
+    - generic [ref=e47]:
+      - generic [ref=e48]:
+        - generic [ref=e49]: 泼溅数量
+        - group "泼溅数量" [ref=e50]:
+          - button "精细" [pressed] [ref=e51] [cursor=pointer]
+          - button "标准" [ref=e52] [cursor=pointer]
+          - button "精简" [ref=e53] [cursor=pointer]
+          - button "极简" [ref=e54] [cursor=pointer]
+      - generic [ref=e55]: 118 万个高斯（全量） · 网页查看器仍加载 29.5 万的轻量版
+      - generic [ref=e56]:
+        - generic [ref=e57]: 尺寸比例
+        - generic [ref=e58]: 1.00×
+      - slider "尺寸比例" [ref=e59] [cursor=pointer]: "1"
+      - generic [ref=e60]:
+        - generic [ref=e61]: 等效焦距
+        - group "焦距模式" [ref=e62]:
+          - button "自动" [pressed] [ref=e63] [cursor=pointer]
+          - button "手动" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]: 无 EXIF 时按 30mm 处理
+      - group [ref=e66]:
+        - generic "高级 / ADVANCED" [ref=e67] [cursor=pointer]
+      - button "恢复默认" [disabled] [ref=e68]
+    - button "↻ 重新生成" [disabled] [ref=e69]
+    - paragraph [ref=e70]: 调整参数后重新生成，结果会作为新记录保留。
