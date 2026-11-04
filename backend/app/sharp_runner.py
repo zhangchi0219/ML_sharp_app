@@ -609,7 +609,8 @@ def predict(
     output_ply_path.parent.mkdir(parents=True, exist_ok=True)
 
     with _predict_lock:
-        image, _icc, f_px = io.load_rgb(image_path)
+        from .image_io import load_rgb
+        image, _icc, f_px = load_rgb(image_path)
         height, width = image.shape[:2]
         detected_focal35 = _f_px_to_focal35(f_px, width, height)
         if focal35 is not None:

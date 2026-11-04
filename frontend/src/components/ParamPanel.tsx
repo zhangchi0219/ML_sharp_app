@@ -31,6 +31,7 @@ export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: 
             <button
               key={detail}
               type="button"
+              aria-pressed={params.detail === detail}
               className={`seg${params.detail === detail ? " active" : ""}`}
               onClick={() => set("detail", detail)}
               disabled={busy}
@@ -70,6 +71,7 @@ export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: 
         <div className="segmented" role="group" aria-label="焦距模式">
           <button
             type="button"
+            aria-pressed={autoFocal}
             className={`seg${autoFocal ? " active" : ""}`}
             onClick={() => set("focal35", null)}
             disabled={busy}
@@ -78,8 +80,9 @@ export default function ParamPanel({ params, onChange, busy, detectedFocal35 }: 
           </button>
           <button
             type="button"
+            aria-pressed={!autoFocal}
             className={`seg${!autoFocal ? " active" : ""}`}
-            onClick={() => set("focal35", Math.round(effectiveAuto))}
+            onClick={() => set("focal35", Math.max(14, Math.min(85, Math.round(effectiveAuto))))}
             disabled={busy}
           >
             手动

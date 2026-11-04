@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import io as _io
+import asyncio
+import threading
+from datetime import timezone
+from functools import wraps
 import json
 import logging
 import mimetypes
@@ -14,11 +18,11 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 from pydantic import BaseModel, Field, ValidationError
 from sqlmodel import select
+from starlette.concurrency import run_in_threadpool
 
-from . import db, paths, sharp_runner
+from . import db, paths, sharp_runner, image_io
 from .models import Generation
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -92,18 +96,36 @@ def _parse_params(raw: str) -> GenParams:
 
 # 启动预热若失败，记录原因，让接口给出清晰提示而非整服务崩溃。
 _warmup_error: str | None = None
+_mutation_lock = threading.RLock()
+
+
+def coordinated(fn):
+    @wraps(fn)
+    def locked(*args, **kwargs):
+        with _mutation_lock:
+            return fn(*args, **kwargs)
+    return locked
+
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global _warmup_error
     db.init_db()
+    _warmup_error = None
+    async def load():
+        global _warmup_error
+        try:
+            await run_in_threadpool(sharp_runner.warmup)
+        except Exception as exc:
+            _warmup_error = f"{type(exc).__name__}: {exc}"
+            LOGGER.exception("SHARP model loading failed")
+    task = asyncio.create_task(load())
     try:
-        sharp_runner.warmup()
-    except Exception as exc:  # noqa: BLE001
-        _warmup_error = f"{type(exc).__name__}: {exc}"
-        LOGGER.exception("SHARP 模型加载失败")
-    yield
+        yield
+    finally:
+        await task
+
 
 
 app = FastAPI(title="单张高斯泼溅", lifespan=lifespan)
@@ -131,7 +153,7 @@ def _to_dict(g: Generation) -> dict:
         "webPoints": g.web_points,
         "elapsedMs": g.elapsed_ms,
         "status": g.status,
-        "createdAt": g.created_at.isoformat(),
+        "createdAt": (g.created_at.replace(tzinfo=timezone.utc) if g.created_at.tzinfo is None else g.created_at.astimezone(timezone.utc)).isoformat(),
         # 迁移前的老记录没有这两项，返回 null；前端用默认值兜住。
         "params": json.loads(g.params) if g.params else None,
         "detectedFocal35": g.detected_focal35,
@@ -171,6 +193,7 @@ def _safe_unlink(path: Path) -> None:
 
 
 @app.delete("/api/history/{gen_id}")
+@coordinated
 def delete_generation(gen_id: str) -> dict:
     """删除一条记录及其产出文件。
 
@@ -222,7 +245,7 @@ def _run_generation(
 
     ply_path = GAUSS_DIR / f"{gen_id}.ply"
     web_path = GAUSS_DIR / f"{gen_id}.splat"
-    t0 = time.time()
+    t0 = time.perf_counter()
     try:
         result = sharp_runner.predict(
             UPLOAD_DIR / image_name,
@@ -232,8 +255,10 @@ def _run_generation(
         )
     except Exception as exc:  # noqa: BLE001
         LOGGER.exception("生成失败")
+        _safe_unlink(ply_path)
+        _safe_unlink(web_path)
         raise HTTPException(500, f"生成失败：{exc}") from exc
-    elapsed_ms = int((time.time() - t0) * 1000)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     record = Generation(
         id=gen_id,
@@ -249,11 +274,17 @@ def _run_generation(
         web_path=web_path.name,
         web_points=result.web_points,
     )
-    with db.get_session() as session:
-        session.add(record)
-        session.commit()
-        session.refresh(record)
-        return _to_dict(record)
+    try:
+        with db.get_session() as session:
+            session.add(record)
+            response = _to_dict(record)
+            session.commit()
+            return response
+    except Exception:
+        _safe_unlink(ply_path)
+        _safe_unlink(web_path)
+        raise
+
 
 
 @app.post("/api/generate")
@@ -271,36 +302,42 @@ async def generate(
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"不支持的图片类型：{ext or '未知'}")
 
-    data = await file.read()
+    try:
+        data = await file.read(MAX_BYTES + 1)
+    finally:
+        await file.close()
     if not data:
         raise HTTPException(400, "空文件")
     if len(data) > MAX_BYTES:
         raise HTTPException(400, "图片过大（上限 40MB）")
 
-    gen_id = uuid.uuid4().hex[:12]
-    image_path = UPLOAD_DIR / f"{gen_id}{ext}"
-    image_path.write_bytes(data)
+    return await run_in_threadpool(_generate_upload, data, ext, file.filename, gen_params)
 
-    # 生成缩略图（用于画廊）。
-    thumb_path = THUMB_DIR / f"{gen_id}.jpg"
+
+@coordinated
+def _generate_upload(data: bytes, ext: str, filename: str | None, params: GenParams) -> dict:
     try:
-        with Image.open(_io.BytesIO(data)) as im:
-            im = im.convert("RGB")
-            im.thumbnail((512, 512))
-            im.save(thumb_path, "JPEG", quality=85)
-    except Exception as exc:  # noqa: BLE001
+        im, _ = image_io.decode_image(_io.BytesIO(data))
+    except Exception as exc:
         raise HTTPException(400, f"无法读取图片：{exc}") from exc
-
-    return _run_generation(
-        gen_id=gen_id,
-        image_name=image_path.name,
-        thumb_name=thumb_path.name,
-        original_filename=file.filename or f"{gen_id}{ext}",
-        params=gen_params,
-    )
+    gen_id = uuid.uuid4().hex
+    image_path = UPLOAD_DIR / f"{gen_id}{ext}"
+    thumb_path = THUMB_DIR / f"{gen_id}.jpg"
+    created = [image_path, thumb_path, GAUSS_DIR / f"{gen_id}.ply", GAUSS_DIR / f"{gen_id}.splat"]
+    try:
+        image_path.write_bytes(data)
+        im.thumbnail((512, 512))
+        im.save(thumb_path, "JPEG", quality=85)
+        return _run_generation(gen_id=gen_id, image_name=image_path.name,
+            thumb_name=thumb_path.name, original_filename=filename or image_path.name, params=params)
+    except Exception:
+        for path in created:
+            _safe_unlink(path)
+        raise
 
 
 @app.post("/api/regenerate/{source_id}")
+@coordinated
 def regenerate(source_id: str, params: str = Form("{}")) -> dict:
     """用新参数重跑已有记录的源图，产出一条**新**记录（不覆盖原来的，便于对比）。"""
     gen_params = _parse_params(params)
@@ -316,7 +353,7 @@ def regenerate(source_id: str, params: str = Form("{}")) -> dict:
         raise HTTPException(404, f"源图已不存在：{image_name}")
 
     return _run_generation(
-        gen_id=uuid.uuid4().hex[:12],
+        gen_id=uuid.uuid4().hex,
         image_name=image_name,
         thumb_name=thumb_name,
         original_filename=original_filename,

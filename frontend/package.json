@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test-params.cjs"
   },
   "dependencies": {
     "@fontsource/bricolage-grotesque": "^5.1.0",

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import sys
+import os
 import tempfile
 from pathlib import Path
 
@@ -30,7 +31,7 @@ from sharp.utils import gaussians as _g  # noqa: E402
 from sharp.utils.gaussians import compose_covariance_matrices  # noqa: E402
 
 SAMPLE = _ROOT / "third_party" / "ml-sharp" / "data" / "teaser.jpg"
-OUT = Path(tempfile.gettempdir()) / "sharp_equiv"
+OUT = Path(os.environ.get("SHARP_EQUIV_DIR", str(Path(tempfile.gettempdir()) / "sharp_equiv")))
 
 _failures: list[str] = []
 

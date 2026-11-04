@@ -4,7 +4,7 @@
  * 参数面板（可调）与参数卡（只读回看）读同一份标签——放在这里是为了改一个名字只改一处，
  * 否则两边会慢慢漂成两套说法。数值范围仍归 lib/types.ts 与后端 GenParams 管。
  */
-import { DEFAULT_PARAMS, FALLBACK_FOCAL35, type GenParams, type Generation } from "./types";
+import { DEFAULT_PARAMS, FALLBACK_FOCAL35, normalizeParams, type HistoricalParams, type GenParams, type Generation } from "./types";
 
 // 原生 2 × 768 × 768 = 1,179,648 个高斯，只能抽稀减少，无法增加。
 // detail 是网格抽样步长 k：保留 1/k² 的泼溅（后端 sharp_runner._grid_subsample）。
@@ -61,15 +61,16 @@ export interface ParamRow {
   changed: boolean;
 }
 
-export function paramRows(params: GenParams, detected: number | null): ParamRow[] {
+export function paramRows(raw: HistoricalParams, detected: number | null): ParamRow[] {
+  const params = normalizeParams(raw);
   const rows: ParamRow[] = [
     {
       label: "泼溅数量",
       // detail 之前叫 density（按不透明度 Top-K 的保留比例）。老记录里没有 detail，
       // 直接报存下来的比例，不硬套成步长——两者的裁剪方式根本不同，换算会撒谎。
       value:
-        params.detail == null
-          ? `旧版 ${(params as { density?: number }).density?.toFixed(2) ?? "?"}`
+        raw.detail == null && typeof raw.density === "number" && Number.isFinite(raw.density)
+          ? `旧版 ${raw.density?.toFixed(2) ?? "?"}`
           : detailLabel(params.detail),
       changed: params.detail !== DEFAULT_PARAMS.detail,
     },

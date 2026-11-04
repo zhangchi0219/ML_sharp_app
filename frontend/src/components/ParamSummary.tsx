@@ -7,7 +7,7 @@ interface Props {
 
 /** 后端 created_at 是 UTC aware，isoformat 带 +00:00，Date 能正确解析成本地时间。 */
 function formatTime(iso: string): string {
-  const d = new Date(iso);
+  const d = new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("zh-CN", {
     month: "2-digit",
@@ -33,11 +33,11 @@ export default function ParamSummary({ item }: Props) {
   ].filter(Boolean);
 
   return (
-    <section className="param-summary">
-      <div className="content-head">
+    <details className="param-summary">
+      <summary className="content-head">
         <span className="label">参数 / PARAMS</span>
         <span className="label">{stats.join(" · ")}</span>
-      </div>
+      </summary>
       {rows ? (
         <div className="param-grid">
           {rows.map(({ label, value, changed }) => (
@@ -51,6 +51,6 @@ export default function ParamSummary({ item }: Props) {
         // 参数留存是后加的功能，之前的记录 params 为 null。
         <div className="param-grid-empty label">该记录早于参数留存功能，无参数信息</div>
       )}
-    </section>
+    </details>
   );
 }

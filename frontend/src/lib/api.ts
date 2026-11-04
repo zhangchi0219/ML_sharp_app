@@ -1,13 +1,13 @@
 import type { GenParams, Generation, Health } from "./types";
 
 export async function getHealth(): Promise<Health> {
-  const r = await fetch("/api/health");
+  const r = await fetch("/api/health", { signal: AbortSignal.timeout(5000) });
   if (!r.ok) throw new Error(`health ${r.status}`);
   return r.json();
 }
 
 export async function getHistory(): Promise<Generation[]> {
-  const r = await fetch("/api/history");
+  const r = await fetch("/api/history", { signal: AbortSignal.timeout(5000) });
   if (!r.ok) throw new Error(`history ${r.status}`);
   return r.json();
 }

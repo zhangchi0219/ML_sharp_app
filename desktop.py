@@ -132,7 +132,7 @@ def _page(heading: str, body: str, *, spin: bool = False) -> str:
     dots = '<div class="dots"><i></i><i></i><i></i></div>' if spin else ""
     return f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <title>{TITLE}</title><style>
-  :root {{ --canvas:#EBE4D6; --ink:#2A241E; --muted:#8A7E6D; --hot:#BE6A4A; }}
+  :root {{ --canvas:#080B0F; --ink:#EDF2F7; --muted:#A1ADB8; --hot:#B6CFF2; }}
   * {{ box-sizing:border-box; margin:0; }}
   body {{ height:100vh; display:grid; place-items:center; background:var(--canvas);
          color:var(--ink); font-family:"Microsoft YaHei",system-ui,sans-serif; }}

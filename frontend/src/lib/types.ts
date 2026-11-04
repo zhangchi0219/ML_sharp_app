@@ -39,12 +39,21 @@ export const DEFAULT_PARAMS: GenParams = {
  * 老记录存的是已废弃的 `density`（按不透明度 Top-K 的保留比例）。后端 GenParams 是
  * `extra="forbid"`，原样送回去会被打成 422，所以这里必须把陌生字段丢掉。
  */
-export function normalizeParams(raw: GenParams | null): GenParams {
-  if (!raw) return DEFAULT_PARAMS;
-  const out: GenParams = { ...DEFAULT_PARAMS };
+export type HistoricalParams = Partial<GenParams> & { density?: number };
+
+export function normalizeParams(raw: HistoricalParams | null | undefined): GenParams {
+  const out = { ...DEFAULT_PARAMS };
+  if (!raw || typeof raw !== "object") return out;
+  const ranges: Record<keyof GenParams, [number, number]> = {
+    scale: [.5, 2], detail: [1, 4], focal35: [14, 85], maxScale: [1.5, 20],
+    colorGain: [0, 3], scaleGain: [0, 3], shapeGain: [0, 3], opacityGain: [0, 3], depthGain: [0, 3],
+  };
   for (const key of Object.keys(DEFAULT_PARAMS) as (keyof GenParams)[]) {
-    // focal35 合法值包含 null，所以只能拿 undefined 当「缺失」。
-    if (raw[key] !== undefined) Object.assign(out, { [key]: raw[key] });
+    const v = raw[key];
+    const [min, max] = ranges[key];
+    if (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max && (key !== "detail" || Number.isInteger(v))) {
+      Object.assign(out, { [key]: v });
+    }
   }
   return out;
 }
@@ -67,7 +76,7 @@ export interface Generation {
   status: string;
   createdAt: string;
   /** 本次生成用的参数；迁移前的老记录为 null。 */
-  params: GenParams | null;
+  params: HistoricalParams | null;
   /** 图片 EXIF 推出的 35mm 等效焦距；老记录为 null。 */
   detectedFocal35: number | null;
 }

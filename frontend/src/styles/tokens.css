@@ -4,22 +4,31 @@
    ============================================================ */
 
 :root {
-  /* — 画布与墨色：暖、低饱和底色 — */
-  --canvas:     #EBE4D6;   /* 暖燕麦色（默认） */
-  --surface:    #F3EEE4;   /* 略浅，用于抬升面板 */
-  --ink:        #2A241E;   /* 暖墨黑文字 */
-  --ink-muted:  #8A7E6D;   /* 暖灰褐，次级文字 + 标签 */
+  /* — Obsidian + mist blue: dark surfaces, quiet cool accents — */
+  color-scheme: dark;
+  --canvas:         #080B0F;
+  --surface:        #111519;
+  --surface-raised: #1A222B;
+  --ink:            #EDF2F7;
+  --ink-muted:      #A1ADB8;
+  --border:         #384653;
+  --border-subtle:  #252E37;
 
-  /* — 唯一强调色，每屏只用一次（一个 CTA 或一个块）— */
-  --hot:        #BE6A4A;   /* 低饱和 terracotta */
-  --on-hot:     #F6F0E6;   /* 落在 hot 填充上的暖白文字 */
+  --hot:            #B6CFF2;
+  --on-hot:         #142130;
+  --hot-hover:      #D1E1F7;
+  --accent-soft:    #24364A;
+  --accent-ink:     #D1E1F7;
+  --secondary:      #1C2A38;
+  --secondary-ink:  #C2D7EF;
+  --success:        #A7C4B2;
+  --warning:        #E1C394;
 
-  /* — 模块强调色：暖、低饱和的色块 — */
-  --m-sand:     #D9C9AB;
-  --m-clay:     #C8A98B;
-  --m-rose:     #D4B3A4;
-  --m-olive:    #B4AC82;
-  --m-hot:      #BE6A4A;
+  --m-sand:     #1A222B;
+  --m-clay:     #283441;
+  --m-rose:     #344252;
+  --m-olive:    #526577;
+  --m-hot:      #B6CFF2;
 
   /* — 字体族（Latin 在前，CJK 在后；中文走系统 Microsoft YaHei）— */
   --font-display: "Bricolage Grotesque", "Archivo", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
